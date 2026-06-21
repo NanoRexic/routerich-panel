@@ -7,7 +7,7 @@ PREFERRED_PORT="${1:-2020}"
 PANEL_HOME="/www/routerich-panel"
 CHOSEN_PORT=""
 
-log() { printf '[setup] %s\n' "$1"; }
+log() { printf '[setup] %s\n' "$1" >&2; }
 
 pick_port() {
 	port="$1"

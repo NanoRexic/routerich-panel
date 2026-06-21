@@ -111,7 +111,8 @@ chmod 755 "$SETUP"
 
 log "Configuring uhttpd..."
 PREFERRED_PORT="$PANEL_PORT"
-eval "$(sh "$SETUP" "$PANEL_PORT")"
+# Only eval PANEL_* lines — setup-panel.sh logs go to stderr
+eval "$(sh "$SETUP" "$PANEL_PORT" | grep '^PANEL_')"
 
 VERSION=""
 fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" 2>/dev/null && VERSION=$(cat "$TMP_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
