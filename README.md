@@ -1,10 +1,10 @@
 # RouteRich Panel
 
-Веб-панель управления роутером OpenWrt в стиле Routerich: перезагрузка, AmneziaWG (awg10), Zapret Manager, исправление Opera-Proxy.
+Веб-панель управления для роутера **Routerich**: перезагрузка, AmneziaWG (awg10), Zapret Manager, исправление Opera-Proxy.
 
 **Репозиторий:** [github.com/NanoRexic/routerich-panel](https://github.com/NanoRexic/routerich-panel)
 
-## Установка на OpenWrt (SSH / терминал)
+## Установка на роутер (SSH / терминал)
 
 Одна команда на роутере:
 
@@ -56,6 +56,6 @@ wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/unins
 
 ## Требования
 
-- OpenWrt с `uhttpd`
+- Роутер Routerich с веб-сервером `uhttpd`
 - `wget` или `curl` на роутере (для установки с GitHub)
 - `jq` (устанавливается автоматически при настройке, если возможно)
