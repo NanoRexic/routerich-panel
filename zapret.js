@@ -13,6 +13,7 @@ let youtubeLoaded = false;
 let testResultsLoaded = false;
 let testStrategiesType = '';
 let busy = false;
+let showZapret2DisabledBanner = false;
 
 const TEST_TYPE_LABELS = {
   versions: 'Стратегии v',
@@ -74,8 +75,9 @@ function renderZapret2Banner(d) {
     return;
   }
 
-  el.hidden = false;
   if (isZapret2Active(z2)) {
+    showZapret2DisabledBanner = false;
+    el.hidden = false;
     const meta = zapret2StatusParts(z2).join(' · ');
     el.className = 'zapret-zapret2-banner warn';
     el.innerHTML =
@@ -88,6 +90,13 @@ function renderZapret2Banner(d) {
     return;
   }
 
+  if (!showZapret2DisabledBanner) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+
+  el.hidden = false;
   el.className = 'zapret-zapret2-banner ok';
   el.innerHTML =
     '<strong>Zapret2 отключён</strong>' +
@@ -519,12 +528,17 @@ async function runAction(target, value, confirmMsg) {
       return;
     }
     zapretData = data.data;
+    if (target === 'zapret2_disable') {
+      showZapret2DisabledBanner = true;
+      setZapretStatus('Zapret2 отключён', 'success');
+    } else {
+      setZapretStatus('Готово', 'success');
+    }
     renderZapret2Banner(zapretData);
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
-    setZapretStatus('Готово', 'success');
-    setTimeout(() => setZapretStatus(''), 2000);
+    setTimeout(() => setZapretStatus(''), target === 'zapret2_disable' ? 4000 : 2000);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -536,6 +550,7 @@ async function runAction(target, value, confirmMsg) {
 function showZapretModal() {
   zapretOverlay.hidden = false;
   document.body.classList.add('modal-open');
+  showZapret2DisabledBanner = false;
   setZapretError('');
   setZapretStatus('');
   youtubeLoaded = false;
@@ -550,6 +565,7 @@ function showZapretModal() {
 function hideZapretModal() {
   zapretOverlay.hidden = true;
   document.body.classList.remove('modal-open');
+  showZapret2DisabledBanner = false;
 }
 
 function switchTab(tabId) {
