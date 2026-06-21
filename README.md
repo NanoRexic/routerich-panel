@@ -1,71 +1,61 @@
 # RouteRich Panel
 
-Web panel for OpenWrt routers (Routerich style): reboot, AmneziaWG awg10, Zapret Manager, Opera-Proxy fix.
+Веб-панель управления роутером OpenWrt в стиле Routerich: перезагрузка, AmneziaWG (awg10), Zapret Manager, исправление Opera-Proxy.
 
-**Repository:** [github.com/NanoRexic/routerich-panel](https://github.com/NanoRexic/routerich-panel)
+**Репозиторий:** [github.com/NanoRexic/routerich-panel](https://github.com/NanoRexic/routerich-panel)
 
-## Install on OpenWrt (SSH / terminal)
+## Установка на OpenWrt (SSH / терминал)
 
-One command on the router:
+Одна команда на роутере:
 
 ```sh
 wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
 ```
 
-Custom port:
+Другой порт:
 
 ```sh
 PANEL_PORT=2021 wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
 ```
 
-Uninstall:
+Удаление:
 
 ```sh
 wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/uninstall.sh | sh
 ```
 
-Note: use `github.com/.../raw/...` URLs, not `raw.githubusercontent.com` — on routers with Zapret hosts overrides the latter may serve stale files.
+Используйте URL вида `github.com/.../raw/...`, а не `raw.githubusercontent.com` — на роутерах с подменой hosts в Zapret последний может отдавать устаревшие файлы.
 
-Panel opens on port **2020** (fallback: 2021, 8080, 8888). Ports 80 and 443 are not used.
+Панель открывается на порту **2020** (запасные: 2021, 8080, 8888). Порты 80 и 443 не занимаются.
 
-After update: hard refresh in browser (**Ctrl+F5**) for Service Worker cache.
+После обновления обновите страницу в браузере (**Ctrl+F5**) для сброса кэша Service Worker.
 
-### GitHub access on router
+### Доступ к GitHub с роутера
 
-If `raw.githubusercontent.com` is blocked, add GitHub hosts to `/etc/hosts` (same as Zapret Manager) or install from Windows (see below).
+Если GitHub недоступен, добавьте записи в `/etc/hosts` (как в Zapret Manager) или установите панель с Windows (см. ниже).
 
-## Install from Windows
+## Установка с Windows
 
-1. Download **RouteRich-Windows.zip** from [Releases](https://github.com/NanoRexic/routerich-panel/releases) (or clone this repo and use the `windows/` folder).
-2. Run `1-Install-Prerequisites.bat` (once per PC).
-3. Run `2-Install-Panel.bat`.
+1. Скачайте **RouteRich-Windows.zip** из [Releases](https://github.com/NanoRexic/routerich-panel/releases) (или используйте папку `windows/` из репозитория).
+2. Запустите `1-Install-Prerequisites.bat` (один раз на ПК).
+3. Запустите `2-Install-Panel.bat`.
 
-The installer connects via SSH and runs `install.sh` on the router. If the router cannot reach GitHub, it automatically retries by downloading files on the PC and uploading via SSH.
+Установщик подключается по SSH и запускает `install.sh` на роутере. Если роутер не может скачать файлы с GitHub, установщик автоматически скачает их на ПК и загрузит по SSH.
 
-Options (pass to `2-Install-Panel.bat` or `install.py`):
+Параметры (передаются в `2-Install-Panel.bat` или `install.py`):
 
-| Flag | Description |
-|------|-------------|
-| `--host IP` | Router IP (default: auto-detect gateway) |
-| `--empty-password` | Empty SSH password |
-| `--password PASS` | SSH password on command line |
-| `--local-upload` | Force PC download + SSH upload |
-| `--test-ssh` | Test SSH only |
+| Параметр | Описание |
+|----------|----------|
+| `--host IP` | IP роутера (по умолчанию: автоопределение шлюза) |
+| `--empty-password` | Пустой пароль SSH |
+| `--password PASS` | Пароль SSH в командной строке |
+| `--local-upload` | Принудительно скачать на ПК и загрузить по SSH |
+| `--test-ssh` | Только проверка SSH |
 
-Uninstall: `3-Uninstall-Panel.bat`
+Удаление: `3-Uninstall-Panel.bat`
 
-## Requirements
+## Требования
 
-- OpenWrt with `uhttpd`
-- `wget` or `curl` on router (for GitHub install)
-- `jq` (installed automatically during setup if possible)
-
-## Development
-
-Local quick deploy (Kirill router):
-
-```bash
-python windows/install.py --host 192.168.0.1 --password YOUR_PASSWORD
-```
-
-Or SSH to router and re-run the one-liner install command.
+- OpenWrt с `uhttpd`
+- `wget` или `curl` на роутере (для установки с GitHub)
+- `jq` (устанавливается автоматически при настройке, если возможно)
