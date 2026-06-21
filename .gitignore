@@ -9,6 +9,7 @@ RouteRich-Windows.zip
 # Local dev / secrets
 deploy.py
 test_remote_install.py
+test_urls.py
 error.txt
 install.config.json
 panel-install.json

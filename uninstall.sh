@@ -1,6 +1,6 @@
 #!/bin/sh
 # RouteRich panel — uninstall from OpenWrt
-# Usage: wget -O - https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/uninstall.sh | sh
+# Usage: wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/uninstall.sh | sh
 
 set -e
 

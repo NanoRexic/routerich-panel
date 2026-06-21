@@ -1,11 +1,12 @@
 #!/bin/sh
 # RouteRich panel — install on OpenWrt (download from GitHub)
-# Usage: wget -O - https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/install.sh | sh
+# Usage: wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
 # Env: REPO_RAW, PANEL_PORT
 
 set -e
 
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/NanoRexic/routerich-panel/main}"
+# github.com/raw works when /etc/hosts overrides raw.githubusercontent.com (Zapret)
+REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_PORT="${PANEL_PORT:-2020}"
 UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
 TMP_DIR="/tmp/routerich-install-$$"
