@@ -66,18 +66,23 @@ def main() -> int:
         "Установщик подключается к Routerich по SSH и ставит панель на роутер.\n"
     )
 
-    status, existing = api_request(token, "GET", f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")
-    if status == 200 and existing:
+    release = None
+    try:
+        _, existing = api_request(token, "GET", f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")
         release = existing
         print(f"Release {tag} already exists, uploading asset...")
-    else:
+    except RuntimeError as exc:
+        if "GitHub API 404" not in str(exc):
+            raise
+    if release is None:
         payload = json.dumps(
             {
                 "tag_name": tag,
                 "name": tag,
                 "body": release_body,
                 "draft": False,
-                "make_latest": True,
+                "make_latest": "true",
+                "target_commitish": "main",
             }
         ).encode("utf-8")
         _, release = api_request(
