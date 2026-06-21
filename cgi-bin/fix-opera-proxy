@@ -14,7 +14,8 @@ json_ok_apply() {
 	socks_url="$2"
 	mixed_was="$3"
 	opera_was="$4"
-	printf '%s\n' "{\"ok\":true,\"message\":\"Opera-Proxy настроен и проверен\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"needs_fix\":false}}"
+	pkg_ver="$5"
+	printf '%s\n' "{\"ok\":true,\"message\":\"Opera-Proxy обновлён, настроен и проверен\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"opera_proxy_version\":\"$pkg_ver\",\"needs_fix\":false}}"
 	exit 0
 }
 
@@ -26,12 +27,39 @@ json_ok_status() {
 	opera_ok="$5"
 	init_ok="$6"
 	running_ok="$7"
-	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"init_script_ok\":$init_ok,\"opera_proxy_running\":$running_ok}}"
+	pkg_ver=$(get_opera_proxy_version)
+	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"init_script_ok\":$init_ok,\"opera_proxy_running\":$running_ok,\"opera_proxy_version\":\"$pkg_ver\"}}"
 	exit 0
 }
 
 get_lan_ip() {
 	ip -4 addr show br-lan 2>/dev/null | awk '/inet / {print $2; exit}' | cut -d/ -f1
+}
+
+get_opera_proxy_version() {
+	opkg list-installed 2>/dev/null | awk '/^opera-proxy / {print $3; exit}'
+}
+
+upgrade_opera_proxy_package() {
+	if ! command -v opkg >/dev/null 2>&1; then
+		json_err "opkg не найден на роутере"
+	fi
+
+	if ! opkg update >/dev/null 2>&1; then
+		json_err "Не удалось обновить список пакетов (opkg update)"
+	fi
+
+	if opkg list-installed 2>/dev/null | grep -q '^opera-proxy '; then
+		if ! opkg upgrade opera-proxy >/dev/null 2>&1; then
+			json_err "Не удалось обновить пакет opera-proxy (opkg upgrade)"
+		fi
+	else
+		if ! opkg install opera-proxy >/dev/null 2>&1; then
+			json_err "Не удалось установить пакет opera-proxy (opkg install)"
+		fi
+	fi
+
+	[ -x /usr/bin/opera-proxy ] || json_err "opera-proxy не найден после обновления пакета"
 }
 
 get_mixed_port() {
@@ -163,6 +191,9 @@ verify_opera_proxy() {
 }
 
 apply_fix() {
+	upgrade_opera_proxy_package
+	PKG_VER=$(get_opera_proxy_version)
+
 	LAN_IP=$(get_lan_ip)
 	[ -n "$LAN_IP" ] || LAN_IP=$(uci -q get network.lan.ipaddr)
 	[ -n "$LAN_IP" ] || json_err "Не удалось определить LAN-адрес роутера"
@@ -189,7 +220,7 @@ apply_fix() {
 		json_err "opera-proxy не прошёл проверку. SOCKS: ${SOCKS_URL}"
 	fi
 
-	json_ok_apply "$LAN_IP" "$SOCKS_URL" "$mixed_was_enabled" "$opera_was_enabled"
+	json_ok_apply "$LAN_IP" "$SOCKS_URL" "$mixed_was_enabled" "$opera_was_enabled" "$PKG_VER"
 }
 
 echo "Content-Type: application/json"

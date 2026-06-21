@@ -189,6 +189,7 @@ if (operaProxyBtn) {
   operaProxyBtn.addEventListener('click', async () => {
     if (!confirm(
       'Настроить Opera-Proxy?\n\n' +
+      '• Обновит пакет opera-proxy через opkg (важно для старых версий)\n' +
       '• Включит смешанный прокси awg10 (порт 2080), если выключен\n' +
       '• Перезапишет /etc/init.d/opera-proxy с адресом роутера\n' +
       '• Перезапустит Zeroblock и opera-proxy, проверит работу\n' +
@@ -196,7 +197,7 @@ if (operaProxyBtn) {
     )) return;
 
     hideStatus();
-    showStatus('Настройка Opera-Proxy… Подождите до 40 секунд.', 'info');
+    showStatus('Обновление пакета и настройка Opera-Proxy… Подождите до 60 секунд.', 'info');
     operaProxyBtn.disabled = true;
 
     try {
@@ -204,6 +205,7 @@ if (operaProxyBtn) {
       if (data.ok) {
         const d = data.data || {};
         let msg = data.message || 'Opera-Proxy настроен.';
+        if (d.opera_proxy_version) msg += ' Версия пакета: ' + d.opera_proxy_version + '.';
         if (d.socks_proxy) msg += ' SOCKS: ' + d.socks_proxy + '.';
         if (d.opera_section_was_enabled === 0) msg += ' Секция opera включена.';
         showStatus(msg, 'success');
