@@ -75,14 +75,14 @@ api_zapret2_status_json() {
 		z2_installed=1
 	fi
 	if [ -f /etc/init.d/zapret2 ]; then
-		if /etc/init.d/zapret2 running >/dev/null 2>&1; then
-			z2_running=1
-		elif /etc/init.d/zapret2 status 2>/dev/null | grep -qiE 'running|started|active'; then
-			z2_running=1
-		fi
+		status_out=$(/etc/init.d/zapret2 status 2>/dev/null | head -n1 | tr '[:upper:]' '[:lower:]')
+		case "$status_out" in
+			*inactive*|*stopped*|*not\ running*) ;;
+			*running*|*started*) z2_running=1 ;;
+		esac
 		/etc/init.d/zapret2 enabled >/dev/null 2>&1 && z2_autostart=1
 	fi
-	if [ "$z2_running" -eq 0 ] && pgrep -f '/opt/zapret2/.*nfqws2' >/dev/null 2>&1; then
+	if [ "$z2_running" -eq 0 ] && pgrep -x nfqws2 >/dev/null 2>&1; then
 		z2_running=1
 	fi
 	if [ -f /etc/config/zapret2 ]; then
