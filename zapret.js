@@ -126,8 +126,8 @@ function renderOverview(d) {
     '<div class="zp-grid zp-grid-compact">' +
     '<div class="zp-card"><span class="zp-label">Статус</span><span class="' + runCls + '">' + run + '</span></div>' +
     z2Card +
-    '<div class="zp-card"><span class="zp-label">Версия</span><span>' + (d.version || '—') + '</span></div>' +
     '<div class="zp-card"><span class="zp-label">NFQ</span><span>' + (d.nfq ? d.nfq.running + '/' + d.nfq.total : '—') + '</span></div>' +
+    '<div class="zp-card"><span class="zp-label">Версия</span><span>' + (d.version || '—') + '</span></div>' +
     '<div class="zp-card"><span class="zp-label">Актуальная</span><span>' + (d.latest_version || '—') + '</span></div>' +
     '<div class="zp-card"><span class="zp-label">Manager</span><span>v' + (d.manager_version || '?') + '</span></div>' +
     '</div>' +
