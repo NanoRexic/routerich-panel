@@ -11,7 +11,7 @@ UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
 TMP_DIR="/tmp/routerich-install-$$"
 MANIFEST="$TMP_DIR/files.manifest"
 
-log() { printf '[install] %s\n' "$1"; }
+log() { printf '[install] %s\n' "$1" >&2; }
 fail() { printf '[install] ERROR: %s\n' "$1" >&2; exit 1; }
 
 cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
@@ -20,11 +20,16 @@ trap cleanup EXIT INT TERM
 fetch() {
 	url="$1"
 	out="$2"
+	# Bypass stale CDN cache on some networks (e.g. via /etc/hosts mirrors)
+	case "$url" in
+		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
+		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
+	esac
 	if command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" -O "$out" "$url" 2>/dev/null && return 0
+		wget -q -U "$UA" --no-cache -O "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL -A "$UA" -o "$out" "$url" 2>/dev/null && return 0
+		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	return 1
 }

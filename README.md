@@ -9,19 +9,19 @@ Web panel for OpenWrt routers (Routerich style): reboot, AmneziaWG awg10, Zapret
 One command on the router:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/install.sh | sh
+wget -O - "https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/install.sh?t=$(date +%s)" | sh
 ```
 
 Custom port:
 
 ```sh
-PANEL_PORT=2021 wget -O - https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/install.sh | sh
+PANEL_PORT=2021 wget -O - "https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/install.sh?t=$(date +%s)" | sh
 ```
 
 Uninstall:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/uninstall.sh | sh
+wget -O - "https://raw.githubusercontent.com/NanoRexic/routerich-panel/main/uninstall.sh?t=$(date +%s)" | sh
 ```
 
 Panel opens on port **2020** (fallback: 2021, 8080, 8888). Ports 80 and 443 are not used.

@@ -3,8 +3,12 @@
 2-Установить-панель.bat
 3-Удалить-панель.bat
 
+# Release build artifact
+RouteRich-Windows.zip
+
 # Local dev / secrets
 deploy.py
+test_remote_install.py
 error.txt
 install.config.json
 panel-install.json
