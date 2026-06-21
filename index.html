@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1e293b">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Панель управления роутером RouteRich">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RouteRich">
+  <meta name="format-detection" content="telephone=no">
+  <title>RouteRich — Управление роутером</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="app">
+  <header class="header">
+    <img src="data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3c!--%20Generator:%20Adobe%20Illustrator%2026.5.0,%20SVG%20Export%20Plug-In%20.%20SVG%20Version:%206.00%20Build%200)%20--%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20xmlns:xlink=%27http://www.w3.org/1999/xlink%27%20version=%271.1%27%20id=%27Ebene_1%27%20x=%270px%27%20y=%270px%27%20viewBox=%270%200%20380%20380%27%20style=%27enable-background:new%200%200%20380%20380;%27%20xml:space=%27preserve%27%3e%3cstyle%20type=%27text/css%27%3e%20.st0{fill:none;}%20.st1{fill:%23FFD400;}%20%3c/style%3e%3cpath%20d=%27M324.6,186.6c-6.9,0-12.5,5.6-12.5,12.5c0,6.9,5.6,12.5,12.5,12.5s12.5-5.6,12.5-12.5l0,0%20C337.1,192.2,331.5,186.6,324.6,186.6L324.6,186.6z%27%3e%3c/path%3e%3cg%3e%3cpath%20class=%27st0%27%20d=%27M292.6,241h48.3c0,0,0,0,0,0c8.8,0,15.9-7.1,15.9-15.9v-51.9c0,0,0,0,0,0c0-8.8-7.1-15.9-15.9-15.9h-43.3%20c2.4,10.7,3.7,21.8,3.7,33.2C301.3,208.2,298.3,225.2,292.6,241z%27%3e%3c/path%3e%3cpath%20d=%27M340.9,135.3h-5.3V51.5c0-6.1-4.9-11-11-11s-11,4.9-11,11v83.8h-22.8c2.8,7.1,5.1,14.4,6.8,22h43.3%20c8.8,0,15.9,7.1,15.9,15.9c0,0,0,0,0,0V225c0,8.8-7.1,15.9-15.9,15.9c0,0,0,0,0,0h-48.3c-2.7,7.6-6,15-9.9,22h58.2%20c20.9,0,37.9-17,37.9-37.9v-51.8C378.8,152.3,361.8,135.3,340.9,135.3z%27%3e%3c/path%3e%3ccircle%20class=%27st1%27%20cx=%27152.2%27%20cy=%27190.5%27%20r=%27150%27%3e%3c/circle%3e%3c/g%3e%3cg%3e%3cpath%20d=%27M101.9,169.6c0,0,1.4-2.8,4.8-5.9c1.7-1.5,4-3.1,6.8-4.3c2.8-1.1,6.3-1.8,9.9-1.1l1.3,0.3l0.5,0.1l0.2,0.1l0.5,0.2l2,0.8%20c1.3,0.5,2.6,1.1,3.8,1.7c2.4,1.2,4.7,2.3,6.6,3.6c3.8,2.4,6,4.5,6,4.5s-3.1,0-7.3-0.8c-2.1-0.4-4.6-0.9-7.2-1.6%20c-1.3-0.4-2.7-0.7-4-1.1l-2-0.7l-0.5-0.2l-0.2-0.1c0.2,0.1-0.1,0-0.1,0l-0.8-0.1c-1-0.2-2.2-0.2-3.3-0.2c-1.2,0.1-2.3,0.2-3.5,0.4%20c-2.3,0.5-4.6,1.2-6.6,1.9C104.6,168.6,101.9,169.6,101.9,169.6z%27%3e%3c/path%3e%3cpath%20d=%27M197,169.7c0,0-2.7-1-6.8-2.5c-1-0.3-2-0.6-3.2-1c-1.1-0.3-2.3-0.6-3.4-0.9c-1.2-0.2-2.3-0.4-3.5-0.4c-1.1,0-2.3,0-3.3,0.2%20l-0.8,0.1c0,0-0.3,0.1-0.1,0l-0.2,0.1l-0.5,0.2l-2,0.7c-1.4,0.4-2.7,0.8-4,1.2c-2.6,0.7-5.1,1.2-7.2,1.6c-4.2,0.8-7.3,0.8-7.3,0.8%20s2.2-2.1,6-4.5c1.9-1.3,4.1-2.4,6.6-3.6c1.2-0.6,2.5-1.2,3.8-1.7l2-0.8l0.5-0.2l0.2-0.1l0.5-0.1l1.3-0.3c3.6-0.7,7.1,0,9.9,1.2%20c2.8,1.2,5.1,2.7,6.8,4.3C195.7,166.9,197,169.7,197,169.7z%27%3e%3c/path%3e%3cpath%20d=%27M229.2,220.5c-2.4-13.9-18.8-29-18.6-29.7c0.1-0.2,0.2-0.5,0.4-0.7c0.8,0.3,2.6,1.5,3.4,1.5c4.8-0.3,7.1-4.7,7.7-6.7%20c1-3.2,4-19.9,3.7-23.4c-0.5-7.3-5.1-11.2-9.9-13.2c0.4-10-0.1-21.9-3.1-33.1c-1.6-6.2-4.2-12.1-7.4-17.4%20c-8.6-17.5-25.9-32.1-54.4-32.1c-15.8,0-28.2,4.5-37.7,11.5c-12.2,5.4-22.7,20.7-26.5,38.8c-2.4,11.2-2.6,23.1-1.9,32.9%20c-1.8,0.9-3.5,1.9-4.9,3.4c-2.5,2.6-3.8,5.7-3.7,9.4c0.1,2.8,2.2,19.8,4.2,23.6c1.8,3.4,3.5,7.1,7.2,7.1c0.8,0,2.8-1.8,3.6-2.1%20c0.1,0.1,0.1,0.2,0.2,0.4c0.1,0.6-15,12.8-17.2,26.9c-3.1,19.1-5.7,38.2,3.2,61.3c4.7,12.1,44.7,36.3,73,36.3s66.8-22.8,72.5-34.4%20C233.1,260.7,232.5,239.2,229.2,220.5z%20M215.5,154.1c2.4,1.4,4.6,3.8,4.9,7.8c0.2,2.4-2.5,18.1-3.5,21.4c-0.4,1.2-2.2,1.5-3.7,1.5%20C214.1,178.7,214.8,161.4,215.5,154.1z%20M89.1,185.2c-1.7,0-2.9-0.8-3.8-2.4c-1.2-2.4-3.5-18-3.6-21.1c0-2.2,0.7-4,2.2-5.5%20c0.5-0.5,1-0.9,1.6-1.3c0.8,6.6,2.7,23.3,3.9,30.3C89.3,185.2,89.2,185.2,89.1,185.2z%20M139.2,222.7c1.5-0.2,3-0.6,4.2-1.2%20c8.6-3.8,9.4-4,17.4-0.1c1.2,0.6,2.7,1,4.3,1.3C157.8,222.6,146.8,222.6,139.2,222.7z%20M203.7,194.9%20C203.7,194.9,203.7,194.9,203.7,194.9c-2.1,2.5-8.1,9.4-13.5,20c-1-0.4-2.3-0.7-3.6-0.9c-12.2-1.5-11.9-4.3-17.6-7.5%20c-3.3-1.8-9.2-2.2-16.9,0c-6.2-2.1-12.9-2.1-16.2-0.3c-4.3,2.4-9.1,5.9-13.7,7.3c-0.4-0.1-0.8,0-1.1,0.3c-1.2,0.3-2.3,0.4-3.5,0.3%20c-2,0.3-3.7,0.9-5.1,1.6c-9.8-15.1-14.9-20.3-14.8-20.8c0-0.2-0.1-0.4-0.1-0.6c0-0.1,0.1-0.1,0.1-0.2c2-3.7-1.1-34.5-0.8-40.9%20l1.2-3.2c0.9-3.9,0.8-7.8,0.2-11.6c0.4-2,0.8-4,1.5-5.9c4-11.3,8.9,0.5,27.8-18.3c4.4-4.4,6.3-9.3,6.7-14.1%20c13.8,7.8,30.2,14.8,39.2,14.8c5.6,0,22.4,7.5,27.8,18.1c1.2,2.4,2,4.8,2.5,7.4c-0.2,3.1-0.1,6.3,0.7,9.7l0.3,1.3%20C204.9,158.5,201.5,190.8,203.7,194.9z%27%3e%3c/path%3e%3c/g%3e%3c/svg%3e" alt="RouteRich" class="logo">
+    <h1>Управление роутером</h1>
+    <div class="header-actions">
+      <button type="button" class="header-btn" id="btn-shortcut" aria-label="Создать ярлык на панель">
+        <svg class="header-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/>
+          <path d="M19 13v7M15.5 16.5H22.5"/>
+        </svg>
+        <span class="header-btn-text">Ярлык</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="main">
+    <nav class="menu">
+      <h2 class="menu-title">Управление роутером</h2>
+      <ul class="menu-list">
+        <li>
+          <button class="menu-item" id="btn-reboot">
+            <span class="menu-icon">⟳</span>
+            Перезагрузка роутера
+          </button>
+        </li>
+        <li>
+          <button class="menu-item" id="btn-awg">
+            <span class="menu-icon">⚙</span>
+            Обновить конфиг AmneziaWG (awg10)
+          </button>
+        </li>
+        <li id="menu-item-opera-proxy" hidden>
+          <button class="menu-item" id="btn-opera-proxy">
+            <span class="menu-icon">🌐</span>
+            Исправить Opera-Proxy
+          </button>
+        </li>
+        <li>
+          <button class="menu-item" id="btn-zapret">
+            <span class="menu-icon">🛡</span>
+            Управление Zapret
+          </button>
+        </li>
+      </ul>
+    </nav>
+
+    <section class="status" id="status-area" hidden>
+      <p id="status-message"></p>
+    </section>
+  </main>
+
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 id="modal-title">Вставьте, перетащите или выберите .conf файл</h2>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-generate">Сгенерировать новый</button>
+          <label class="btn btn-outline browse-btn">
+            Обзор...
+            <input type="file" id="file-input" accept=".conf,.txt" hidden>
+          </label>
+        </div>
+      </div>
+
+      <p class="modal-status" id="modal-status" hidden></p>
+
+      <div class="saved-picker" id="saved-picker" hidden>
+        <label class="saved-picker-label" for="saved-select">Сохранённые конфиги</label>
+        <select id="saved-select" class="saved-select">
+          <option value="">— выберите вариант —</option>
+        </select>
+      </div>
+
+      <div class="modal-body" id="drop-zone">
+        <textarea id="config-text" spellcheck="false" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = ...&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = host:port&#10;AllowedIPs = 0.0.0.0/0"></textarea>
+      </div>
+
+      <div class="modal-error" id="modal-error" hidden></div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btn-cancel">Отмена</button>
+        <button class="btn btn-primary" id="btn-import">Импортировать</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay zapret-overlay" id="zapret-overlay" hidden>
+    <div class="modal zapret-modal" role="dialog" aria-labelledby="zapret-title">
+      <div class="zapret-header">
+        <h2 id="zapret-title">Zapret Manager</h2>
+        <div class="zapret-header-actions">
+          <button type="button" class="btn btn-outline btn-sm" id="zapret-refresh">Обновить</button>
+          <button type="button" class="btn btn-outline btn-sm" id="zapret-close">Закрыть</button>
+        </div>
+      </div>
+
+      <nav class="zapret-tabs" aria-label="Разделы Zapret">
+        <button type="button" class="zapret-tab active" data-tab="overview">Обзор</button>
+        <button type="button" class="zapret-tab" data-tab="strategies">Стратегии</button>
+        <button type="button" class="zapret-tab" data-tab="discord">Discord</button>
+        <button type="button" class="zapret-tab" data-tab="hosts">Hosts</button>
+        <button type="button" class="zapret-tab" data-tab="test">Тест</button>
+        <button type="button" class="zapret-tab" data-tab="system">Система</button>
+      </nav>
+
+      <p class="zapret-status" id="zapret-status" hidden></p>
+      <div class="zapret-error" id="zapret-error" hidden></div>
+
+      <div class="zapret-body">
+        <section class="zapret-panel active" id="zapret-panel-overview">
+          <div class="zp-overview-service">
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-service="start">Запустить</button>
+              <button type="button" class="btn btn-outline btn-sm" data-service="stop">Остановить</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-service="restart">Перезапустить</button>
+            </div>
+          </div>
+          <div id="zapret-overview" class="zapret-overview"></div>
+        </section>
+
+        <section class="zapret-panel" id="zapret-panel-strategies">
+          <div class="zp-section">
+            <h3>Базовая стратегия</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-base="v1">v1</button>
+              <button type="button" class="zp-toggle" data-base="v2">v2</button>
+              <button type="button" class="zp-toggle" data-base="v3">v3</button>
+              <button type="button" class="zp-toggle" data-base="v4">v4</button>
+              <button type="button" class="zp-toggle" data-base="v5">v5</button>
+              <button type="button" class="zp-toggle" data-base="v6">v6</button>
+              <button type="button" class="zp-toggle" data-base="v7">v7</button>
+              <button type="button" class="zp-toggle" data-base="v8">v8</button>
+              <button type="button" class="zp-toggle" data-base="v9">v9</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>YouTube</h3>
+            <div class="zp-select-row">
+              <select id="zapret-youtube-select" class="saved-select">
+                <option value="">— загрузка списка —</option>
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="zapret-youtube-apply">Применить</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Discord (Dv)</h3>
+            <div class="zp-select-row">
+              <select id="zapret-discord-select" class="saved-select">
+                <option value="">— выберите Dv —</option>
+                <option value="1">Dv1</option>
+                <option value="2">Dv2</option>
+                <option value="3">Dv3</option>
+                <option value="4">Dv4</option>
+                <option value="5">Dv5</option>
+                <option value="6">Dv6</option>
+                <option value="7">Dv7</option>
+                <option value="8">Dv8</option>
+                <option value="9">Dv9</option>
+                <option value="10">Dv10</option>
+                <option value="11">Dv11</option>
+                <option value="12">Dv12</option>
+                <option value="13">Dv13</option>
+                <option value="14">Dv14</option>
+                <option value="15">Dv15</option>
+                <option value="16">Dv16</option>
+                <option value="17">Dv17</option>
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="zapret-discord-apply">Применить</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Игры (Gv)</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-gv="1">Gv1</button>
+              <button type="button" class="zp-toggle" data-gv="2">Gv2</button>
+              <button type="button" class="zp-toggle" data-gv="3">Gv3</button>
+              <button type="button" class="zp-toggle" data-gv="4">Gv4</button>
+              <button type="button" class="zp-toggle zp-toggle-danger" data-gv="remove">Удалить</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Модификаторы</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-toggle="rkn">RKN bypass</button>
+              <button type="button" class="zp-toggle" data-toggle="wssize">wssize</button>
+              <button type="button" class="zp-toggle" data-toggle="methodeol">methodeol</button>
+              <button type="button" class="zp-toggle" data-toggle="udp443">udp443</button>
+              <button type="button" class="zp-toggle" data-toggle="quic">QUIC</button>
+              <button type="button" class="zp-toggle" data-toggle="ipv6">IPv6</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret-panel-discord">
+          <div class="zp-section">
+            <h3>Discord-скрипты</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-discord-script="50-stun4all">50-stun4all</button>
+              <button type="button" class="zp-toggle" data-discord-script="50-quic4all">50-quic4all</button>
+              <button type="button" class="zp-toggle" data-discord-script="50-discord-media">50-discord-media</button>
+              <button type="button" class="zp-toggle" data-discord-script="50-discord">50-discord</button>
+              <button type="button" class="zp-toggle zp-toggle-danger" data-discord-script="remove">Удалить</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Финские IP Discord</h3>
+            <button type="button" class="zp-toggle" data-finland="1">Переключить Finland hosts</button>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret-panel-hosts">
+          <p class="zp-muted">Блоки доменов в /etc/hosts. Нажмите для переключения.</p>
+          <div class="zp-btn-grid" id="zapret-hosts-blocks"></div>
+          <div class="zp-section">
+            <h3>Пресеты</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="btn btn-outline btn-sm" data-hosts-preset="all">Все блоки</button>
+              <button type="button" class="btn btn-outline btn-sm" data-hosts-preset="geohide">GeoHide</button>
+              <button type="button" class="btn btn-outline btn-sm" data-hosts-preset="mafioznik">Mafioznik</button>
+              <button type="button" class="btn btn-outline btn-sm" data-hosts-preset="malw">Malw.link</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" data-hosts-preset="reset">Сброс hosts</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret-panel-test">
+          <div class="zp-section">
+            <h3>Текущая конфигурация</h3>
+            <p class="zp-muted">Проверка доступности доменов с активной стратегией Zapret.</p>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary" id="zapret-test-current">Тестировать текущую</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Тест по доменам</h3>
+            <p class="zp-muted">Один или несколько доменов через пробел, например: <code>x.com vk.com</code></p>
+            <div class="zp-test-domain-row">
+              <input type="text" id="zapret-test-domains" class="saved-select" placeholder="x.com vk.com instagram.com" autocomplete="off">
+              <button type="button" class="btn btn-outline btn-sm" id="zapret-test-domain">Тестировать</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Тест стратегии из списка</h3>
+            <p class="zp-muted">Выберите одну стратегию v или Flowseal — она временно применится, пройдёт проверка доменов, затем конфиг восстановится.</p>
+            <div class="zp-test-strategy-row">
+              <select id="zapret-test-strategy-type" class="saved-select">
+                <option value="versions">Стратегии v (v1–v9)</option>
+                <option value="flowseal">Flowseal</option>
+              </select>
+              <select id="zapret-test-strategy-select" class="saved-select">
+                <option value="">— загрузка списка —</option>
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="zapret-test-strategy">Тестировать</button>
+            </div>
+          </div>
+          <div id="zapret-test-summary" class="zp-test-summary" hidden></div>
+          <div id="zapret-test-domains-list" class="zp-test-list"></div>
+          <div class="zp-section">
+            <h3>Сохранённые результаты</h3>
+            <p class="zp-muted">Результаты полного теста стратегий (v / Flowseal), если они были запущены на роутере.</p>
+            <div id="zapret-test-saved" class="zp-test-saved"></div>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-outline btn-sm" id="zapret-test-refresh-saved">Обновить</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" id="zapret-test-clear">Удалить результаты</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret-panel-system">
+          <div class="zp-section">
+            <h3>Обслуживание</h3>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-outline" data-system="exclude_update">Обновить exclude</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Резервная копия</h3>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-system="backup-save">Сохранить</button>
+              <button type="button" class="btn btn-outline btn-sm" data-system="backup-restore">Восстановить</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" data-system="backup-delete">Удалить</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="shortcut-overlay" hidden>
+    <div class="modal shortcut-modal" role="dialog" aria-labelledby="shortcut-title">
+      <div class="modal-header">
+        <h2 id="shortcut-title">Ярлык на панель</h2>
+      </div>
+      <div class="shortcut-body" id="shortcut-body"></div>
+      <div class="modal-footer shortcut-footer">
+        <button type="button" class="btn btn-outline" id="shortcut-close">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="shortcut-action" hidden>Скачать ярлык</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="shortcut.js"></script>
+  <script src="zapret.js"></script>
+</body>
+</html>

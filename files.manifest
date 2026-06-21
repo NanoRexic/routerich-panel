@@ -1,0 +1,22 @@
+{
+  "panel_home": "/www/routerich-panel",
+  "panel_port_preferred": 2020,
+  "panel_port_fallbacks": [2021, 8080, 8888],
+  "files": [
+    {"src": "cgi-bin/reboot", "dst": "/www/routerich-panel/cgi-bin/reboot", "mode": "755"},
+    {"src": "cgi-bin/fix-opera-proxy", "dst": "/www/routerich-panel/cgi-bin/fix-opera-proxy", "mode": "755"},
+    {"src": "cgi-bin/import-awg", "dst": "/www/routerich-panel/cgi-bin/import-awg", "mode": "755"},
+    {"src": "cgi-bin/generate-awg", "dst": "/www/routerich-panel/cgi-bin/generate-awg", "mode": "755"},
+    {"src": "cgi-bin/saved-awg", "dst": "/www/routerich-panel/cgi-bin/saved-awg", "mode": "755"},
+    {"src": "cgi-bin/zapret-api", "dst": "/www/routerich-panel/cgi-bin/zapret-api", "mode": "755"},
+    {"src": "lib/zapret-headless.sh", "dst": "/etc/routerich-panel/zapret-headless.sh", "mode": "755"},
+    {"src": "index.html", "dst": "/www/routerich-panel/index.html", "mode": "644"},
+    {"src": "app.js", "dst": "/www/routerich-panel/app.js", "mode": "644"},
+    {"src": "shortcut.js", "dst": "/www/routerich-panel/shortcut.js", "mode": "644"},
+    {"src": "zapret.js", "dst": "/www/routerich-panel/zapret.js", "mode": "644"},
+    {"src": "style.css", "dst": "/www/routerich-panel/style.css", "mode": "644"},
+    {"src": "sw.js", "dst": "/www/routerich-panel/sw.js", "mode": "644"},
+    {"src": "icon.svg", "dst": "/www/routerich-panel/icon.svg", "mode": "644"},
+    {"src": "manifest.webmanifest", "dst": "/www/routerich-panel/manifest.webmanifest", "mode": "644"}
+  ]
+}

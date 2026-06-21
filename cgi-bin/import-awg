@@ -1,0 +1,255 @@
+#!/bin/sh
+
+IFACE="awg10"
+PEER_SECTION="@amneziawg_awg10[0]"
+
+json_err() {
+	printf '%s\n' "{\"ok\":false,\"error\":\"$1\"}"
+	exit 0
+}
+
+json_ok() {
+	printf '%s\n' '{"ok":true,"message":"Configuration applied"}'
+	exit 0
+}
+
+MAX_NETWORK_BACKUPS=4
+BACKUP_PREFIX='/etc/config/network.bak.'
+
+validate_b64_key() {
+	key="$1"
+	name="$2"
+	if [ -z "$key" ]; then
+		json_err "$name не указан"
+	fi
+	if ! echo "$key" | grep -qE '^[A-Za-z0-9+/]{43}=$'; then
+		json_err "$name некорректен (ожидается Base64, 44 символа)"
+	fi
+}
+
+backup_network_config() {
+	count=0
+	for f in "$BACKUP_PREFIX"*; do
+		[ -f "$f" ] || continue
+		count=$((count + 1))
+	done
+
+	while [ "$count" -ge "$MAX_NETWORK_BACKUPS" ]; do
+		oldest=$(ls -1 "$BACKUP_PREFIX"* 2>/dev/null | head -n 1)
+		[ -n "$oldest" ] && [ -f "$oldest" ] || break
+		rm -f "$oldest"
+		count=$((count - 1))
+	done
+
+	cp /etc/config/network "${BACKUP_PREFIX}$(date +%s)" 2>/dev/null
+}
+
+echo "Content-Type: application/json"
+echo ""
+
+if [ "$REQUEST_METHOD" != "POST" ]; then
+	json_err "Method not allowed"
+fi
+
+if [ -z "$CONTENT_LENGTH" ] || [ "$CONTENT_LENGTH" -eq 0 ]; then
+	json_err "Пустое тело запроса"
+fi
+
+TMPDIR="/tmp/routerich-panel"
+mkdir -p "$TMPDIR"
+CONF_FILE="$TMPDIR/import-$$.conf"
+dd bs=1 count="$CONTENT_LENGTH" of="$CONF_FILE" 2>/dev/null
+
+if [ ! -s "$CONF_FILE" ]; then
+	rm -f "$CONF_FILE"
+	json_err "Пустой конфиг"
+fi
+
+PARSED="$TMPDIR/parsed-$$.env"
+awk '
+BEGIN { section = "" }
+/^\[Interface\]/ { section = "interface"; next }
+/^\[Peer\]/ { section = "peer"; next }
+/^[[:space:]]*#/ { next }
+/^[[:space:]]*$/ { next }
+{
+	pos = index($0, "=")
+	if (pos < 1) next
+	key = substr($0, 1, pos - 1)
+	val = substr($0, pos + 1)
+	gsub(/^[ \t]+|[ \t]+$/, "", key)
+	gsub(/^[ \t]+|[ \t]+$/, "", val)
+	sub(/#.*$/, "", val)
+	gsub(/^[ \t]+|[ \t]+$/, "", val)
+	if (length(val) < 1) next
+	lkey = tolower(key)
+	gsub(/ /, "", lkey)
+	print section "_" lkey "=" val
+}
+' "$CONF_FILE" > "$PARSED"
+
+rm -f "$CONF_FILE"
+
+get_val() {
+	grep "^${1}=" "$PARSED" 2>/dev/null | head -1 | cut -d= -f2-
+}
+
+PRIVATE_KEY=$(get_val "interface_privatekey")
+PUBLIC_KEY=$(get_val "peer_publickey")
+ENDPOINT=$(get_val "peer_endpoint")
+
+validate_b64_key "$PRIVATE_KEY" "PrivateKey"
+
+if [ -z "$PUBLIC_KEY" ]; then
+	rm -f "$PARSED"
+	json_err "PublicKey не указан"
+fi
+validate_b64_key "$PUBLIC_KEY" "PublicKey"
+
+if [ -z "$ENDPOINT" ]; then
+	rm -f "$PARSED"
+	json_err "Endpoint не указан"
+fi
+
+# Parse endpoint host:port (supports [ipv6]:port)
+case "$ENDPOINT" in
+	\[*\]*:*)
+		ENDPOINT_HOST=$(echo "$ENDPOINT" | sed 's/^\[\([^]]*\)\]:.*/\1/')
+		ENDPOINT_PORT=$(echo "$ENDPOINT" | sed 's/^\[[^]]*\]:\([0-9]*\).*/\1/')
+		;;
+	*:*)
+		ENDPOINT_PORT="${ENDPOINT##*:}"
+		ENDPOINT_HOST="${ENDPOINT%:*}"
+		;;
+	*)
+		rm -f "$PARSED"
+		json_err "Endpoint некорректен (ожидается host:port)"
+		;;
+esac
+
+if [ -z "$ENDPOINT_HOST" ] || [ -z "$ENDPOINT_PORT" ]; then
+	rm -f "$PARSED"
+	json_err "Endpoint некорректен (ожидается host:port)"
+fi
+
+# Backup (храним не более MAX_NETWORK_BACKUPS копий)
+backup_network_config
+
+# Interface: private_key
+uci -q set "network.${IFACE}.private_key=$PRIVATE_KEY"
+
+# Clear and set list options
+for opt in addresses dns; do
+	uci -q delete "network.${IFACE}.${opt}" 2>/dev/null
+	while uci -q delete "network.${IFACE}.${opt}" 2>/dev/null; do :; done
+done
+
+ADDR=$(get_val "interface_address")
+if [ -n "$ADDR" ]; then
+	IFS=',' 
+	for a in $ADDR; do
+		a=$(echo "$a" | sed 's/^[ \t]*//;s/[ \t]*$//')
+		[ -n "$a" ] && uci add_list "network.${IFACE}.addresses=$a"
+	done
+	unset IFS
+fi
+
+DNS=$(get_val "interface_dns")
+if [ -n "$DNS" ]; then
+	IFS=','
+	for d in $DNS; do
+		d=$(echo "$d" | sed 's/^[ \t]*//;s/[ \t]*$//')
+		[ -n "$d" ] && uci add_list "network.${IFACE}.dns=$d"
+	done
+	unset IFS
+fi
+
+LISTEN_PORT=$(get_val "interface_listenport")
+if [ -n "$LISTEN_PORT" ]; then
+	uci -q set "network.${IFACE}.listen_port=$LISTEN_PORT"
+else
+	uci -q delete "network.${IFACE}.listen_port" 2>/dev/null
+fi
+
+MTU=$(get_val "interface_mtu")
+if [ -n "$MTU" ]; then
+	uci -q set "network.${IFACE}.mtu=$MTU"
+fi
+
+# AWG obfuscation params
+for pair in \
+	"interface_jc:awg_jc" \
+	"interface_jmin:awg_jmin" \
+	"interface_jmax:awg_jmax" \
+	"interface_s1:awg_s1" \
+	"interface_s2:awg_s2" \
+	"interface_s3:awg_s3" \
+	"interface_s4:awg_s4" \
+	"interface_h1:awg_h1" \
+	"interface_h2:awg_h2" \
+	"interface_h3:awg_h3" \
+	"interface_h4:awg_h4" \
+	"interface_i1:awg_i1" \
+	"interface_i2:awg_i2" \
+	"interface_i3:awg_i3" \
+	"interface_i4:awg_i4" \
+	"interface_i5:awg_i5"
+do
+	src="${pair%%:*}"
+	dst="${pair##*:}"
+	val=$(get_val "$src")
+	if [ -n "$val" ]; then
+		uci -q set "network.${IFACE}.${dst}=$val"
+	fi
+done
+
+# Peer section
+uci -q set "network.${PEER_SECTION}.public_key=$PUBLIC_KEY"
+uci -q set "network.${PEER_SECTION}.endpoint_host=$ENDPOINT_HOST"
+uci -q set "network.${PEER_SECTION}.endpoint_port=$ENDPOINT_PORT"
+
+PSK=$(get_val "peer_presharedkey")
+if [ -n "$PSK" ]; then
+	uci -q set "network.${PEER_SECTION}.preshared_key=$PSK"
+else
+	uci -q delete "network.${PEER_SECTION}.preshared_key" 2>/dev/null
+fi
+
+KEEPALIVE=$(get_val "peer_persistentkeepalive")
+if [ -n "$KEEPALIVE" ]; then
+	uci -q set "network.${PEER_SECTION}.persistent_keepalive=$KEEPALIVE"
+else
+	uci -q set "network.${PEER_SECTION}.persistent_keepalive=25"
+fi
+
+# Clear and set allowed_ips
+while uci -q delete "network.${PEER_SECTION}.allowed_ips" 2>/dev/null; do :; done
+ALLOWED=$(get_val "peer_allowedips")
+if [ -n "$ALLOWED" ]; then
+	IFS=','
+	for ip in $ALLOWED; do
+		ip=$(echo "$ip" | sed 's/^[ \t]*//;s/[ \t]*$//')
+		[ -n "$ip" ] && uci add_list "network.${PEER_SECTION}.allowed_ips=$ip"
+	done
+	unset IFS
+else
+	uci add_list "network.${PEER_SECTION}.allowed_ips=0.0.0.0/0"
+	uci add_list "network.${PEER_SECTION}.allowed_ips=::/0"
+fi
+
+# Preserve route_allowed_ips=0 and description
+uci -q set "network.${PEER_SECTION}.route_allowed_ips=0"
+
+rm -f "$PARSED"
+
+if ! uci commit network; then
+	json_err "Не удалось сохранить конфигурацию"
+fi
+
+ifdown "$IFACE" 2>/dev/null
+sleep 1
+if ! ifup "$IFACE" 2>/dev/null; then
+	json_err "Конфиг сохранён, но не удалось поднять интерфейс $IFACE"
+fi
+
+json_ok

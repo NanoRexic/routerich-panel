@@ -1,0 +1,30 @@
+# Legacy local bat files (use windows/)
+1-Установить-зависимости.bat
+2-Установить-панель.bat
+3-Удалить-панель.bat
+
+# Local dev / secrets
+deploy.py
+error.txt
+install.config.json
+panel-install.json
+panel-install-history.json
+
+# Old installer runtime (use windows/ for release)
+installer/tools/
+installer/__pycache__/
+installer/*.pyc
+
+# Windows package runtime
+windows/tools/
+windows/__pycache__/
+
+# Python
+__pycache__/
+*.pyc
+
+# Dev / test scripts (not shipped)
+installer/test-opera-test_socks.py
+inspect_zapret.py
+make_headless.py
+Zapret-Manager.sh

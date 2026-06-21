@@ -1,0 +1,455 @@
+#!/bin/sh
+
+ZAPRET_HEADLESS=1
+LIB="/etc/routerich-panel/zapret-headless.sh"
+
+json_error() {
+	jq -n --arg error "$1" '{ok:false, error:$error}'
+}
+
+json_ok() {
+	if [ -n "$1" ]; then
+		jq -n --argjson data "$1" '{ok:true, data:$data}'
+	elif [ ! -t 0 ]; then
+		jq -s '{ok:true, data:.[0]}'
+	else
+		jq -n '{ok:true, data:null}'
+	fi
+}
+
+read_post_json() {
+	if [ -z "$CONTENT_LENGTH" ] || [ "$CONTENT_LENGTH" -eq 0 ]; then
+		POST_JSON=""
+		return
+	fi
+	POST_JSON=$(dd bs=1 count="$CONTENT_LENGTH" 2>/dev/null)
+}
+
+get_action() {
+	action=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			action=*) action="${QUERY_STRING#action=}"; action="${action%%&*}" ;;
+		esac
+	fi
+	if [ -z "$action" ] && [ -n "$POST_JSON" ]; then
+		action=$(printf '%s' "$POST_JSON" | jq -r '.action // empty' 2>/dev/null)
+	fi
+	printf '%s' "$action"
+}
+
+get_query_param() {
+	param="$1"
+	default="$2"
+	value=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			*${param}=*)
+				value="${QUERY_STRING#*${param}=}"
+				value="${value%%&*}"
+				;;
+		esac
+	fi
+	if [ -n "$value" ]; then
+		printf '%s' "$value"
+	else
+		printf '%s' "$default"
+	fi
+}
+
+block_active() {
+	status_block "$1" >/dev/null 2>&1
+}
+
+zapret_exec() {
+	"$@" >&2
+}
+
+api_status() {
+	get_versions
+	get_doh_status
+	show_current_strategy
+	RKN_Check
+	show_script_50
+
+	installed=0
+	running=0
+	[ -f /etc/init.d/zapret ] && installed=1
+	/etc/init.d/zapret status >/dev/null 2>&1 && running=1
+
+	finland=0
+	grep -q "$Fin_IP_Dis" /etc/hosts 2>/dev/null && finland=1
+
+	backup=0
+	backup_date=""
+	[ -f "$DATE_FILE" ] && [ -f "$BACKUP_DIR/zapret.tar.gz" ] && backup=1 && backup_date=$(cat "$DATE_FILE" 2>/dev/null | tr -d '\n')
+
+	ipv6=0
+	grep -Eq "^[[:space:]]*option DISABLE_IPV6 '0'" "$CONF" 2>/dev/null && ipv6=1
+
+	quic=0
+	quic_is_blocked && quic=1
+
+	hosts_preset=""
+	hosts_enabled && hosts_preset="$hosts_echo"
+
+	dv=$(grep -o -E '^#[[:space:]]*Dv[0-9]+' "$CONF" 2>/dev/null | sed 's/^#[[:space:]]*//' | head -n1)
+	gv=$(grep -o -E '^#Gv[0-9]+' "$CONF" 2>/dev/null | head -n1 | sed 's/^#//')
+	general=$(grep -m1 '^#general' "$CONF" 2>/dev/null | sed 's/^#//')
+
+	jq -n \
+		--arg manager_version "$ZAPRET_MANAGER_VERSION" \
+		--argjson installed "$installed" \
+		--argjson running "$running" \
+		--arg version "${INSTALLED_VER:-}" \
+		--arg latest "${ZAPRET_VERSION:-}" \
+		--arg nfq_run "${NFQ_RUN:-0}" \
+		--arg nfq_all "${NFQ_ALL:-0}" \
+		--arg base "${ver:-}" \
+		--arg youtube "${yv_ver:-}" \
+		--arg discord "$dv" \
+		--arg games "$gv" \
+		--arg flowseal "$general" \
+		--argjson rkn "$([ -n "$RKN_STATUS" ] && echo 1 || echo 0)" \
+		--argjson wssize "$(grep -qF -- '--wssize 1:6' "$CONF" 2>/dev/null && echo 1 || echo 0)" \
+		--argjson methodeol "$(grep -qF -- '--methodeol' "$CONF" 2>/dev/null && echo 1 || echo 0)" \
+		--argjson udp443 "$(grep -q '^#udp443' "$CONF" 2>/dev/null && echo 1 || echo 0)" \
+		--arg hosts_preset "$hosts_preset" \
+		--argjson finland "$finland" \
+		--arg discord_script "${name:-}" \
+		--arg doh "${DOH_STATUS:-}" \
+		--argjson quic "$quic" \
+		--argjson ipv6 "$ipv6" \
+		--argjson backup "$backup" \
+		--arg backup_date "$backup_date" \
+		--argjson block_nalog "$(block_active "$NALOG" && echo 1 || echo 0)" \
+		--argjson block_rutor "$(block_active "$RUTOR" && echo 1 || echo 0)" \
+		--argjson block_ntc "$(block_active "$NTC" && echo 1 || echo 0)" \
+		--argjson block_instagram "$(block_active "$INSTAGRAM" && echo 1 || echo 0)" \
+		--argjson block_librusec "$(block_active "$LIBRUSEC" && echo 1 || echo 0)" \
+		--argjson block_ai "$(block_active "$AI" && echo 1 || echo 0)" \
+		--argjson block_twitch "$(block_active "$TWCH" && echo 1 || echo 0)" \
+		--argjson block_tgweb "$(block_active "$TGWeb" && echo 1 || echo 0)" \
+		--argjson block_spotify "$(block_active "$SPFY" && echo 1 || echo 0)" \
+		--argjson block_supercell "$(block_active "$SCell" && echo 1 || echo 0)" \
+		--argjson block_github "$(block_active "$GITH" && echo 1 || echo 0)" \
+		--argjson test_versions "$([ -s "$RES2" ] && echo 1 || echo 0)" \
+		--argjson test_flowseal "$([ -s "$RES1" ] && echo 1 || echo 0)" \
+		--argjson test_all "$([ -s "$RES3" ] && echo 1 || echo 0)" \
+		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
+		'{
+			manager_version: $manager_version,
+			installed: ($installed == 1),
+			running: ($running == 1),
+			version: $version,
+			latest_version: $latest,
+			nfq: {running: ($nfq_run | tonumber), total: ($nfq_all | tonumber)},
+			strategy: {
+				base: $base, youtube: $youtube, discord: $discord, games: $games, flowseal: $flowseal,
+				rkn: ($rkn == 1), wssize: ($wssize == 1), methodeol: ($methodeol == 1), udp443: ($udp443 == 1)
+			},
+			hosts_preset: $hosts_preset,
+			hosts_blocks: {
+				nalog: ($block_nalog == 1), rutor: ($block_rutor == 1), ntc: ($block_ntc == 1),
+				instagram: ($block_instagram == 1), librusec: ($block_librusec == 1), ai: ($block_ai == 1),
+				twitch: ($block_twitch == 1), tgweb: ($block_tgweb == 1), spotify: ($block_spotify == 1),
+				supercell: ($block_supercell == 1), github: ($block_github == 1)
+			},
+			discord_script: $discord_script,
+			finland_ips: ($finland == 1),
+			doh: $doh,
+			quic_blocked: ($quic == 1),
+			ipv6_enabled: ($ipv6 == 1),
+			backup: {exists: ($backup == 1), date: $backup_date},
+			test_history: {
+				versions: ($test_versions == 1), flowseal: ($test_flowseal == 1),
+				all: ($test_all == 1), domain: ($test_domain == 1)
+			}
+		}'
+}
+
+api_parse_results_file() {
+	file="$1"
+	if [ ! -s "$file" ]; then
+		echo "[]"
+		return
+	fi
+	jq -R -s '
+		split("\n")
+		| map(select(test("→")))
+		| map(
+			(split("→")[0] | gsub("^ +| +$"; "")) as $name
+			| (split("→")[1] | gsub("^ +| +$"; "") | split("/")) as $parts
+			| {name: $name, ok: ($parts[0] | tonumber), total: ($parts[1] | tonumber)}
+		)
+		| map(select(.total > 0))
+	' "$file"
+}
+
+api_test_results() {
+	versions=$(api_parse_results_file "$RES2")
+	flowseal=$(api_parse_results_file "$RES1")
+	all=$(api_parse_results_file "$RES3")
+	domain=$(api_parse_results_file "$RES_DOMAIN")
+	jq -n \
+		--argjson versions "$versions" \
+		--argjson flowseal "$flowseal" \
+		--argjson all "$all" \
+		--argjson domain "$domain" \
+		'{
+			items: [
+				({type: "versions", strategies: $versions} | select(.strategies | length > 0)),
+				({type: "flowseal", strategies: $flowseal} | select(.strategies | length > 0)),
+				({type: "all", strategies: $all} | select(.strategies | length > 0)),
+				({type: "domain", strategies: $domain} | select(.strategies | length > 0))
+			]
+		}'
+}
+
+api_test_strategy_list() {
+	strategy_type=$(get_query_param "type" "")
+	case "$strategy_type" in
+		versions|flowseal) ;;
+		*) json_error "type=versions|flowseal"; return ;;
+	esac
+	list_test_strategies_api "$strategy_type" || { json_error "Не удалось получить список стратегий"; return; }
+}
+
+api_prepare_flowseal() {
+	[ -f /etc/init.d/zapret ] || { json_error "Zapret не установлен"; return; }
+	prepare_flowseal_strategies_api || { json_error "Не удалось скачать стратегии Flowseal. Проверьте доступ к GitHub."; return; }
+}
+
+api_test_run() {
+	mode=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
+	domains=$(printf '%s' "$POST_JSON" | jq -r '.domains // empty')
+	strategy_type=$(printf '%s' "$POST_JSON" | jq -r '.type // empty')
+	strategy_name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+
+	[ -f /etc/init.d/zapret ] || { json_error "Zapret не установлен"; return; }
+
+	case "$mode" in
+		current)
+			test_current_strategy_api || { json_error "Не удалось загрузить список доменов для теста"; return; }
+			;;
+		domain)
+			[ -n "$domains" ] || { json_error "Укажите домены для теста"; return; }
+			test_domains_api "$domains" || { json_error "Некорректный список доменов"; return; }
+			;;
+		strategy)
+			[ -n "$strategy_type" ] && [ -n "$strategy_name" ] || { json_error "Укажите type и name стратегии"; return; }
+			case "$strategy_type" in
+				versions|flowseal) ;;
+				*) json_error "type: versions|flowseal"; return ;;
+			esac
+			test_single_strategy_api "$strategy_type" "$strategy_name" || { json_error "Стратегия не найдена или тест не удался"; return; }
+			;;
+		clear)
+			clear_test_results_api
+			api_test_results
+			return
+			;;
+		*)
+			json_error "test: current|domain|strategy|clear"; return ;;
+	esac
+}
+
+api_youtube_list() {
+	mkdir -p "$TMP_SF"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL "$STR_URL" -o "$TMP_LIST" || { json_error "Не удалось скачать список YouTube-стратегий"; return; }
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -U "Mozilla/5.0" -O "$TMP_LIST" "$STR_URL" || { json_error "Не удалось скачать список YouTube-стратегий"; return; }
+	else
+		json_error "На роутере нет curl/wget для загрузки списка"; return
+	fi
+	awk 'BEGIN{printf "["} /^Yv[0-9]+/{ if (n++) printf ","; printf "\"%s\"", $0 } END{printf "]\n"}' "$TMP_LIST"
+}
+
+api_apply() {
+	target=$(printf '%s' "$POST_JSON" | jq -r '.target // empty')
+	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
+
+	case "$target" in
+		start)
+			zapret_exec start_zapret 1
+			;;
+		stop)
+			zapret_exec stop_zapret 1
+			;;
+		restart)
+			zapret_exec ZAPRET_RESTART
+			;;
+		base)
+			case "$value" in v[1-9]) zapret_exec install_strategy "$value" 1 || { json_error "Не удалось применить $value"; return; } ;; *)
+				json_error "Некорректная базовая стратегия"; return ;;
+			esac
+			;;
+		discord_dv)
+			case "$value" in [1-9]|1[0-7]) zapret_exec switch_Dv_num "$value" || { json_error "Не удалось применить Dv$value"; return; } ;; *)
+				json_error "Discord стратегия 1-17"; return ;;
+			esac
+			;;
+		games)
+			case "$value" in
+				[1-4]) zapret_exec fix_GAME "$value" ;;
+				remove)
+					found=0
+					for i in 1 2 3 4; do
+						if grep -q "^#Gv$i" "$CONF"; then
+							zapret_exec fix_GAME "$i"
+							found=1
+							break
+						fi
+					done
+					[ "$found" -eq 1 ] || { json_error "Игровая стратегия не установлена"; return; }
+					;;
+				*)
+					json_error "Игровая стратегия 1-4 или remove"; return ;;
+			esac
+			;;
+		youtube)
+			[ -n "$value" ] || { json_error "Укажите Yv-стратегию"; return; }
+			mkdir -p "$TMP_SF"
+			curl -fsSL "$STR_URL" -o "$TMP_LIST" || { json_error "Не удалось скачать список"; return; }
+			SAVED_STR="$TMP_SF/selected_str"
+			> "$SAVED_STR"
+			FLAG=0
+			while IFS= read -r LINE; do
+				[ "$LINE" = "$value" ] && FLAG=1 && continue
+				case "$LINE" in Yv[0-9]*) FLAG=0 ;; esac
+				[ "$FLAG" -eq 1 ] && printf '%b\n' "$LINE" >> "$SAVED_STR"
+			done < "$TMP_LIST"
+			[ -s "$SAVED_STR" ] || { json_error "Стратегия $value не найдена"; return; }
+			awk '/^[[:space:]]*option NFQWS_OPT '\''/{flag=1} flag{print}' "$CONF" > "$OLD_STR"
+			sed -i "/^[[:space:]]*option NFQWS_OPT '/,\$d" "$CONF"
+			sed -i "/^[[:space:]]*#Yv[0-9]\+/d" "$OLD_STR"
+			awk '{if(skip){if($0=="--new"||$0~/\047/){skip=0;next}if($0~/^[[:space:]]*$/)next;next}if($0=="--filter-tcp=443"){getline n;if(n=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt"){skip=1;next}else{print $0;print n;next}}if($0=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt")has_google=1;if($0~/^[[:space:]]*#Yv/)next;print}' "$OLD_STR" > "$NEW_STR"
+			awk 'BEGIN{inserted=0;has_google=0} $0=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt"{has_google=1} $0=="--new"&&!inserted{while((getline l<"'"$SAVED_STR"'")>0) if(l!~/^[[:space:]]*$/) print l; print "--new"; inserted=1; next} $0~/^[[:space:]]*option NFQWS_OPT \047$/&&!has_google&&!inserted{print; print "#'"$value"'"; while((getline l<"'"$SAVED_STR"'")>0) if(l!~/^[[:space:]]*$/) print l; print "--new"; inserted=1; next} {print}' "$NEW_STR" > "$FINAL_STR"
+			cat "$FINAL_STR" >> "$CONF"
+			awk '{if($0=="--new"){if(prev!="--new")print}else print;prev=$0}' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+			grep -q "^[[:space:]]*' *\$" "$CONF" || echo "'" >> "$CONF"
+			zapret_exec ZAPRET_RESTART
+			;;
+		toggle)
+			case "$value" in
+				rkn) zapret_exec toggle_rkn_bypass ;;
+				wssize) grep -qF -- '--wssize 1:6' "$CONF" && zapret_exec remove_wssize || zapret_exec add_wssize ;;
+				methodeol) grep -qF -- '--methodeol' "$CONF" && zapret_exec remove_methodeol || zapret_exec add_methodeol ;;
+				udp443)
+					if grep -q '^#udp443' "$CONF"; then
+						sed -i '/^#udp443$/,+6d' "$CONF"
+						zapret_exec ZAPRET_RESTART
+					else
+						sed -i "/^[[:space:]]*option NFQWS_OPT '/a\\#udp443\\n--filter-udp=443\\n--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt\\n--dpi-desync=fake\\n--dpi-desync-repeats=11\\n--dpi-desync-fake-quic=/opt/zapret/files/fake/quic_initial_www_google_com.bin\\n--new" "$CONF"
+						zapret_exec ZAPRET_RESTART
+					fi
+					;;
+				quic) zapret_exec toggle_quic ;;
+				ipv6) zapret_exec toggle_ipv6 ;;
+				finland) zapret_exec toggle_finland_hosts ;;
+				*)
+					json_error "Неизвестный переключатель"; return ;;
+			esac
+			;;
+		hosts)
+			case "$value" in
+				nalog) zapret_exec toggle_block "$NALOG" ;;
+				rutor) zapret_exec toggle_block "$RUTOR" ;;
+				ntc) zapret_exec toggle_block "$NTC" ;;
+				instagram) zapret_exec toggle_block "$INSTAGRAM" ;;
+				librusec) zapret_exec toggle_block "$LIBRUSEC" ;;
+				ai) zapret_exec toggle_block "$AI" ;;
+				twitch) zapret_exec toggle_block "$TWCH" ;;
+				tgweb) zapret_exec toggle_block "$TGWeb" ;;
+				spotify) zapret_exec toggle_block "$SPFY" ;;
+				supercell) zapret_exec toggle_block "$SCell" ;;
+				github) zapret_exec toggle_block "$GITH" ;;
+				all) zapret_exec toggle_all ;;
+				geohide) zapret_exec add_GEO_HOSTS ;;
+				mafioznik)
+					wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_mafioznik.txt >/dev/null 2>&1 || { json_error "Не удалось скачать hosts"; return; }
+					/etc/init.d/dnsmasq restart >/dev/null 2>&1
+					;;
+				malw)
+					wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_malw.link.txt >/dev/null 2>&1 || { json_error "Не удалось скачать hosts"; return; }
+					/etc/init.d/dnsmasq restart >/dev/null 2>&1
+					;;
+				reset) zapret_exec hosts_reset ;;
+				*)
+					json_error "Неизвестный блок hosts"; return ;;
+			esac
+			;;
+		discord_script)
+			case "$value" in
+				remove) zapret_exec remove_discord_script || { json_error "Не удалось удалить скрипт"; return; } ;;
+				50-stun4all|50-quic4all|50-discord-media|50-discord)
+					zapret_exec install_discord_script "$value" || { json_error "Не удалось установить скрипт"; return; }
+					;;
+				*) json_error "Неизвестный Discord-скрипт"; return ;;
+			esac
+			;;
+		exclude_update)
+			/etc/init.d/zapret stop >/dev/null 2>&1
+			rm -f "$EXCLUDE_FILE"
+			wget -q -U "Mozilla/5.0" -O "$EXCLUDE_FILE" "$EXCLUDE_URL" || { json_error "Не удалось обновить exclude"; return; }
+			zapret_exec ZAPRET_RESTART
+			;;
+		backup)
+			case "$value" in
+				save) zapret_exec save_backup ;;
+				restore) zapret_exec restore_backup ;;
+				delete) zapret_exec delete_backup ;;
+				*) json_error "backup: save|restore|delete"; return ;;
+			esac
+			;;
+		*)
+			json_error "Неизвестное действие"; return ;;
+	esac
+
+	api_status | json_ok
+}
+
+echo "Content-Type: application/json"
+echo ""
+
+if [ ! -f "$LIB" ]; then
+	json_error "Zapret library не установлена на роутере"
+	exit 0
+fi
+
+# shellcheck disable=SC1090
+. "$LIB"
+
+if ! command -v jq >/dev/null 2>&1; then
+	json_error "jq не установлен"
+	exit 0
+fi
+
+read_post_json
+action=$(get_action)
+
+case "$REQUEST_METHOD" in
+	GET)
+		case "$action" in
+			status|"") api_status | json_ok ;;
+			youtube-list) api_youtube_list | json_ok ;;
+			test-results) api_test_results | json_ok ;;
+			test-strategies) api_test_strategy_list | json_ok ;;
+			*) json_error "Неизвестный GET action" ;;
+		esac
+		;;
+	POST)
+		[ -n "$POST_JSON" ] || { json_error "Пустой запрос"; exit 0; }
+		case "$action" in
+			apply) api_apply ;;
+			test) api_test_run | json_ok ;;
+			prepare-flowseal) api_prepare_flowseal | json_ok ;;
+			*) json_error "Неизвестный POST action" ;;
+		esac
+		;;
+	*)
+		json_error "Method not allowed"
+		;;
+esac
+exit 0

@@ -1,0 +1,12 @@
+#!/bin/sh
+echo "Content-Type: application/json"
+echo ""
+
+if [ "$REQUEST_METHOD" != "POST" ]; then
+	printf '%s\n' '{"ok":false,"error":"Method not allowed"}'
+	exit 0
+fi
+
+printf '%s\n' '{"ok":true,"message":"Rebooting..."}'
+( sleep 2 && reboot ) >/dev/null 2>&1 &
+exit 0

@@ -1,0 +1,347 @@
+'use strict';
+
+const overlay = document.getElementById('modal-overlay');
+const configText = document.getElementById('config-text');
+const modalError = document.getElementById('modal-error');
+const modalStatus = document.getElementById('modal-status');
+const savedPicker = document.getElementById('saved-picker');
+const savedSelect = document.getElementById('saved-select');
+const statusArea = document.getElementById('status-area');
+const statusMessage = document.getElementById('status-message');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+let savedVariants = [];
+
+function showStatus(message, type) {
+  statusArea.hidden = false;
+  statusArea.className = 'status ' + type;
+  statusMessage.textContent = message;
+}
+
+function hideStatus() {
+  statusArea.hidden = true;
+}
+
+function showModalStatus(message, type) {
+  modalStatus.hidden = false;
+  modalStatus.className = 'modal-status ' + (type || 'info');
+  modalStatus.textContent = message;
+}
+
+function hideModalStatus() {
+  modalStatus.hidden = true;
+}
+
+function clearConfigText() {
+  configText.value = '';
+}
+
+function showModal() {
+  clearConfigText();
+  modalError.hidden = true;
+  hideModalStatus();
+  overlay.hidden = false;
+  document.body.classList.add('modal-open');
+  loadSavedVariants();
+}
+
+function hideModal() {
+  overlay.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function showModalError(msg) {
+  modalError.textContent = msg;
+  modalError.hidden = false;
+}
+
+function isEmptyConfig(text) {
+  return !text.trim();
+}
+
+async function apiPost(path, body, contentType) {
+  const res = await fetch('/cgi-bin/' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType || 'text/plain; charset=utf-8' },
+    body: body
+  });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Некорректный ответ сервера' }));
+  if (!res.ok && !data.error) {
+    data.error = 'HTTP ' + res.status;
+  }
+  return data;
+}
+
+async function apiGet(path) {
+  const res = await fetch('/cgi-bin/' + path, { method: 'GET' });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Некорректный ответ сервера' }));
+  if (!res.ok && !data.error) {
+    data.error = 'HTTP ' + res.status;
+  }
+  return data;
+}
+
+function populateSavedSelect(variants, selectedId) {
+  savedVariants = variants || [];
+  savedSelect.innerHTML = '<option value="">— выберите вариант —</option>';
+
+  if (!savedVariants.length) {
+    savedPicker.hidden = true;
+    return;
+  }
+
+  savedVariants.forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    const endpoint = v.endpoint ? ' (' + v.endpoint + ')' : '';
+    opt.textContent = v.name + endpoint;
+    savedSelect.appendChild(opt);
+  });
+
+  savedPicker.hidden = false;
+
+  if (selectedId) {
+    savedSelect.value = selectedId;
+  }
+}
+
+async function loadSavedVariant(id) {
+  if (!id) {
+    clearConfigText();
+    return;
+  }
+
+  const cached = savedVariants.find((v) => v.id === id);
+  if (cached && cached.config) {
+    configText.value = cached.config.trim();
+    modalError.hidden = true;
+    return;
+  }
+
+  try {
+    const data = await apiGet('saved-awg?id=' + encodeURIComponent(id));
+    if (data.ok && data.config) {
+      configText.value = data.config.trim();
+      modalError.hidden = true;
+      const item = savedVariants.find((v) => v.id === id);
+      if (item) item.config = data.config;
+    } else {
+      showModalError(data.error || 'Не удалось загрузить конфиг');
+    }
+  } catch (err) {
+    showModalError('Ошибка сети: ' + err.message);
+  }
+}
+
+async function loadSavedVariants() {
+  try {
+    const data = await apiGet('saved-awg');
+    if (data.ok && data.variants && data.variants.length) {
+      populateSavedSelect(data.variants);
+    } else {
+      populateSavedSelect([]);
+    }
+  } catch (_) {
+    populateSavedSelect([]);
+  }
+}
+
+function applyGeneratedVariants(data) {
+  if (!data.variants || !data.variants.length) return;
+
+  populateSavedSelect(data.variants, data.variants[0].id);
+  configText.value = (data.variants[0].config || '').trim();
+  modalError.hidden = true;
+
+  const count = data.variants.length;
+  showModalStatus(
+    'Сгенерировано ' + count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') +
+    '. Выберите вариант в списке или отредактируйте текст.',
+    'success'
+  );
+  showStatus('Конфиги сохранены на роутере. Выберите вариант и нажмите «Импортировать».', 'info');
+}
+
+const operaProxyMenuItem = document.getElementById('menu-item-opera-proxy');
+const operaProxyBtn = document.getElementById('btn-opera-proxy');
+
+function setOperaProxyVisible(visible) {
+  if (!operaProxyMenuItem) return;
+  operaProxyMenuItem.hidden = !visible;
+}
+
+async function refreshOperaProxyStatus() {
+  if (!operaProxyMenuItem) return;
+  try {
+    const data = await apiGet('fix-opera-proxy');
+    if (data.ok && data.data) {
+      setOperaProxyVisible(!!data.data.needs_fix);
+    } else {
+      setOperaProxyVisible(false);
+    }
+  } catch (_) {
+    setOperaProxyVisible(false);
+  }
+}
+
+if (operaProxyBtn) {
+  operaProxyBtn.addEventListener('click', async () => {
+    if (!confirm(
+      'Настроить Opera-Proxy?\n\n' +
+      '• Включит смешанный прокси awg10 (порт 2080), если выключен\n' +
+      '• Перезапишет /etc/init.d/opera-proxy с адресом роутера\n' +
+      '• Перезапустит Zeroblock и opera-proxy, проверит работу\n' +
+      '• Включит секцию opera в Zeroblock, если она выключена'
+    )) return;
+
+    hideStatus();
+    showStatus('Настройка Opera-Proxy… Подождите до 40 секунд.', 'info');
+    operaProxyBtn.disabled = true;
+
+    try {
+      const data = await apiPost('fix-opera-proxy', '');
+      if (data.ok) {
+        const d = data.data || {};
+        let msg = data.message || 'Opera-Proxy настроен.';
+        if (d.socks_proxy) msg += ' SOCKS: ' + d.socks_proxy + '.';
+        if (d.opera_section_was_enabled === 0) msg += ' Секция opera включена.';
+        showStatus(msg, 'success');
+        setOperaProxyVisible(false);
+      } else {
+        showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+      }
+    } catch (err) {
+      showStatus('Ошибка сети: ' + err.message, 'error');
+    } finally {
+      operaProxyBtn.disabled = false;
+    }
+  });
+}
+
+refreshOperaProxyStatus();
+
+document.getElementById('btn-awg').addEventListener('click', showModal);
+document.getElementById('btn-cancel').addEventListener('click', hideModal);
+
+overlay.addEventListener('click', (e) => {
+  if (e.target === overlay) hideModal();
+});
+
+savedSelect.addEventListener('change', () => {
+  loadSavedVariant(savedSelect.value);
+});
+
+document.getElementById('btn-reboot').addEventListener('click', async () => {
+  if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
+  hideStatus();
+  showStatus('Отправка команды перезагрузки...', 'info');
+  try {
+    const data = await apiPost('reboot', '');
+    if (data.ok) {
+      showStatus('Роутер перезагружается. Подождите 1–2 минуты.', 'success');
+    } else {
+      showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+    }
+  } catch (err) {
+    showStatus('Роутер перезагружается (соединение прервано).', 'success');
+  }
+});
+
+document.getElementById('btn-generate').addEventListener('click', async () => {
+  modalError.hidden = true;
+  clearConfigText();
+  savedSelect.value = '';
+  const btn = document.getElementById('btn-generate');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Генерация...';
+  showModalStatus('Запрос конфигурации WARP… Генерируем 3 варианта AWG 2.0.', 'info');
+  try {
+    const data = await apiGet('generate-awg');
+    if (data.ok && data.variants && data.variants.length) {
+      applyGeneratedVariants(data);
+    } else {
+      hideModalStatus();
+      showModalError(data.error || 'Не удалось сгенерировать конфиг');
+    }
+  } catch (err) {
+    hideModalStatus();
+    showModalError('Ошибка сети: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+});
+
+document.getElementById('btn-import').addEventListener('click', async () => {
+  const text = configText.value.trim();
+  if (isEmptyConfig(text)) {
+    showModalError('Вставьте, выберите или сгенерируйте конфигурацию .conf');
+    return;
+  }
+  modalError.hidden = true;
+  const btn = document.getElementById('btn-import');
+  btn.disabled = true;
+  btn.textContent = 'Импорт...';
+  try {
+    const data = await apiPost('import-awg', text);
+    if (data.ok) {
+      hideModal();
+      showStatus('Конфигурация AmneziaWG (awg10) успешно обновлена.', 'success');
+    } else {
+      showModalError(data.error || 'Ошибка импорта');
+    }
+  } catch (err) {
+    showModalError('Ошибка сети: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Импортировать';
+  }
+});
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    configText.value = ev.target.result.trim();
+    savedSelect.value = '';
+    modalError.hidden = true;
+    hideModalStatus();
+  };
+  reader.readAsText(file);
+  fileInput.value = '';
+});
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('drag-over');
+});
+
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    configText.value = ev.target.result.trim();
+    savedSelect.value = '';
+    modalError.hidden = true;
+    hideModalStatus();
+  };
+  reader.readAsText(file);
+});
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+if (window.matchMedia('(display-mode: standalone)').matches) {
+  document.documentElement.classList.add('standalone');
+}

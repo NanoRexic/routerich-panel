@@ -1,0 +1,5 @@
+{
+  "_deprecated": "This file is not used. Delete install.config.json if present in the installer folder.",
+  "_history": "Optional log only: %LOCALAPPDATA%\\RouteRich\\panel-install-history.json (--save-history)",
+  "_every_run": "Router IP is auto-detected; SSH password is prompted each time"
+}

@@ -1,0 +1,61 @@
+#!/bin/sh
+
+GEN_DIR='/etc/routerich-panel/generated'
+
+json_error() {
+	jq -n --arg error "$1" '{ok:false, error:$error}'
+}
+
+echo "Content-Type: application/json"
+echo ""
+
+if [ "$REQUEST_METHOD" != "GET" ]; then
+	json_error "Method not allowed"
+	exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+	json_error "jq не установлен на роутере"
+	exit 0
+fi
+
+variant_id=""
+if [ -n "$QUERY_STRING" ]; then
+	case "$QUERY_STRING" in
+		id=*) variant_id="${QUERY_STRING#id=}" ;;
+	esac
+fi
+
+if [ ! -f "$GEN_DIR/meta.json" ]; then
+	if [ -n "$variant_id" ]; then
+		json_error "Сохранённые конфиги не найдены"
+	else
+		jq -n '{ok:true, variants:[]}'
+	fi
+	exit 0
+fi
+
+if [ -n "$variant_id" ]; then
+	case "$variant_id" in
+		v1|v2|v3|single) ;;
+		*)
+			json_error "Неизвестный вариант"
+			exit 0
+			;;
+	esac
+	conf_file="$GEN_DIR/${variant_id}.conf"
+	if [ ! -f "$conf_file" ]; then
+		json_error "Конфиг не найден"
+		exit 0
+	fi
+	jq -n \
+		--arg id "$variant_id" \
+		--rawfile config "$conf_file" \
+		'{ok:true, id:$id, config:$config}'
+	exit 0
+fi
+
+jq -n \
+	--slurpfile meta "$GEN_DIR/meta.json" \
+	'{ok:true, source:$meta[0].source, generated_at:$meta[0].generated_at, variants:$meta[0].variants}'
+exit 0
