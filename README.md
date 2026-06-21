@@ -54,7 +54,7 @@ wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/unins
 
 Удобен, когда нужно установить панель с компьютера: не открывая терминал на роутере, или если с роутера недоступен GitHub из‑за блокировки РКН. Установщик подключается к Routerich по сети и всё настраивает сам.
 
-1. Скачайте архив **RouteRich-Windows.zip** из [Releases](https://github.com/NanoRexic/routerich-panel/releases) и распакуйте.
+1. Скачайте архив **`RouteRich-Windows-v*.zip`** из [Releases](https://github.com/NanoRexic/routerich-panel/releases/latest) и распакуйте.
 2. Запустите **`1-Install-Prerequisites.bat`** — один раз, чтобы подготовить компьютер.
 3. Запустите **`2-Install-Panel.bat`** — установщик подключится к роутеру и установит панель.
 

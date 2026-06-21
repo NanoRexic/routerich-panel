@@ -3,8 +3,9 @@
 2-Установить-панель.bat
 3-Удалить-панель.bat
 
-# Release build artifact
+# Release build artifacts
 RouteRich-Windows.zip
+RouteRich-Windows-v*.zip
 
 # Local dev / secrets
 deploy.py
