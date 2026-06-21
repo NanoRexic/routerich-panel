@@ -65,12 +65,77 @@ zapret_exec() {
 	"$@" >&2
 }
 
+api_zapret2_status_json() {
+	z2_installed=0
+	z2_running=0
+	z2_autostart=0
+	z2_enabled=0
+
+	if [ -f /etc/init.d/zapret2 ] || [ -f /etc/config/zapret2 ] || [ -d /opt/zapret2 ]; then
+		z2_installed=1
+	fi
+	if [ -f /etc/init.d/zapret2 ]; then
+		if /etc/init.d/zapret2 running >/dev/null 2>&1; then
+			z2_running=1
+		elif /etc/init.d/zapret2 status 2>/dev/null | grep -qiE 'running|started|active'; then
+			z2_running=1
+		fi
+		/etc/init.d/zapret2 enabled >/dev/null 2>&1 && z2_autostart=1
+	fi
+	if [ "$z2_running" -eq 0 ] && pgrep -f '/opt/zapret2/.*nfqws2' >/dev/null 2>&1; then
+		z2_running=1
+	fi
+	if [ -f /etc/config/zapret2 ]; then
+		enabled_val=$(uci -q get zapret2.main.enabled 2>/dev/null)
+		[ "$enabled_val" = "1" ] && z2_enabled=1
+	fi
+
+	z2_active=0
+	if [ "$z2_running" -eq 1 ] || [ "$z2_autostart" -eq 1 ] || [ "$z2_enabled" -eq 1 ]; then
+		z2_active=1
+	fi
+
+	jq -n \
+		--argjson installed "$z2_installed" \
+		--argjson running "$z2_running" \
+		--argjson autostart "$z2_autostart" \
+		--argjson enabled "$z2_enabled" \
+		--argjson active "$z2_active" \
+		'{
+			installed: ($installed == 1),
+			running: ($running == 1),
+			autostart: ($autostart == 1),
+			enabled: ($enabled == 1),
+			active: ($active == 1)
+		}'
+}
+
+disable_zapret2_api() {
+	if [ ! -f /etc/init.d/zapret2 ] && [ ! -f /etc/config/zapret2 ] && [ ! -d /opt/zapret2 ]; then
+		json_error "Zapret2 не найден на роутере"
+		return 1
+	fi
+
+	if [ -f /etc/config/zapret2 ]; then
+		uci -q set zapret2.main.enabled='0' 2>/dev/null
+		uci commit zapret2 2>/dev/null
+	fi
+	if [ -f /etc/init.d/zapret2 ]; then
+		/etc/init.d/zapret2 stop >/dev/null 2>&1
+		/etc/init.d/zapret2 disable >/dev/null 2>&1
+	fi
+	killall nfqws2 2>/dev/null
+	return 0
+}
+
 api_status() {
 	get_versions
 	get_doh_status
 	show_current_strategy
 	RKN_Check
 	show_script_50
+
+	zapret2_json=$(api_zapret2_status_json)
 
 	installed=0
 	running=0
@@ -137,6 +202,7 @@ api_status() {
 		--argjson test_flowseal "$([ -s "$RES1" ] && echo 1 || echo 0)" \
 		--argjson test_all "$([ -s "$RES3" ] && echo 1 || echo 0)" \
 		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
+		--argjson zapret2 "$zapret2_json" \
 		'{
 			manager_version: $manager_version,
 			installed: ($installed == 1),
@@ -164,7 +230,8 @@ api_status() {
 			test_history: {
 				versions: ($test_versions == 1), flowseal: ($test_flowseal == 1),
 				all: ($test_all == 1), domain: ($test_domain == 1)
-			}
+			},
+			zapret2: $zapret2
 		}'
 }
 
@@ -402,6 +469,9 @@ api_apply() {
 				delete) zapret_exec delete_backup ;;
 				*) json_error "backup: save|restore|delete"; return ;;
 			esac
+			;;
+		zapret2_disable)
+			disable_zapret2_api || return
 			;;
 		*)
 			json_error "Неизвестное действие"; return ;;

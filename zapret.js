@@ -50,6 +50,51 @@ function fmtStrategy(s) {
   return s;
 }
 
+function isZapret2Active(z2) {
+  return !!(z2 && z2.installed && z2.active);
+}
+
+function zapret2StatusParts(z2) {
+  if (!z2) return [];
+  const parts = [];
+  if (z2.running) parts.push('служба запущена');
+  if (z2.autostart) parts.push('автозапуск включён');
+  if (z2.enabled) parts.push('включён в LuCI');
+  return parts;
+}
+
+function renderZapret2Banner(d) {
+  const el = document.getElementById('zapret-zapret2-banner');
+  if (!el) return;
+
+  const z2 = d && d.zapret2;
+  if (!z2 || !z2.installed) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+
+  el.hidden = false;
+  if (isZapret2Active(z2)) {
+    const meta = zapret2StatusParts(z2).join(' · ');
+    el.className = 'zapret-zapret2-banner warn';
+    el.innerHTML =
+      '<strong>На роутере активен Zapret2</strong>' +
+      '<p>На Routerich он установлен по умолчанию. Перед использованием обычного Zapret (v1) ' +
+      'нужно полностью отключить Zapret2 — иначе обе системы будут конфликтовать.</p>' +
+      (meta ? '<p class="zp-zapret2-meta">Сейчас: ' + meta + '</p>' : '') +
+      '<button type="button" class="btn btn-secondary btn-sm" id="zapret-zapret2-disable">' +
+      'Отключить Zapret2</button>';
+    return;
+  }
+
+  el.className = 'zapret-zapret2-banner ok';
+  el.innerHTML =
+    '<strong>Zapret2 отключён</strong>' +
+    '<p>Можно устанавливать и настраивать обычный Zapret через эту панель. ' +
+    'Управление Zapret2 — в LuCI: Службы → Zapret2.</p>';
+}
+
 function renderOverview(d) {
   const el = document.getElementById('zapret-overview');
   const run = d.running ? 'Запущен' : 'Остановлен';
@@ -60,9 +105,18 @@ function renderOverview(d) {
   const testHist = renderTestHistory(d.test_history).replace(/<\/?p[^>]*>/g, '').trim();
   if (testHist) extras.push(testHist);
 
+  let z2Card = '';
+  if (d.zapret2 && d.zapret2.installed) {
+    const z2Active = isZapret2Active(d.zapret2);
+    const z2Cls = z2Active ? 'zp-run off' : 'zp-run on';
+    const z2Label = z2Active ? 'Активен' : 'Отключён';
+    z2Card = '<div class="zp-card"><span class="zp-label">Zapret2</span><span class="' + z2Cls + '">' + z2Label + '</span></div>';
+  }
+
   el.innerHTML =
     '<div class="zp-grid zp-grid-compact">' +
     '<div class="zp-card"><span class="zp-label">Статус</span><span class="' + runCls + '">' + run + '</span></div>' +
+    z2Card +
     '<div class="zp-card"><span class="zp-label">Версия</span><span>' + (d.version || '—') + '</span></div>' +
     '<div class="zp-card"><span class="zp-label">NFQ</span><span>' + (d.nfq ? d.nfq.running + '/' + d.nfq.total : '—') + '</span></div>' +
     '<div class="zp-card"><span class="zp-label">Актуальная</span><span>' + (d.latest_version || '—') + '</span></div>' +
@@ -403,6 +457,7 @@ async function refreshZapret(silent) {
     if (!zapretData.installed) {
       setZapretError('Zapret не установлен на роутере');
     }
+    renderZapret2Banner(zapretData);
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
@@ -416,6 +471,8 @@ async function refreshZapret(silent) {
 
 async function runTest(mode, options) {
   if (busy) return;
+  const z2Warn = zapret2ActionWarning('test');
+  if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
   setZapretError('');
   const waitMsg = mode === 'strategy'
@@ -440,8 +497,16 @@ async function runTest(mode, options) {
   }
 }
 
+function zapret2ActionWarning(target) {
+  if (target === 'zapret2_disable') return '';
+  if (!zapretData || !isZapret2Active(zapretData.zapret2)) return '';
+  return 'Zapret2 всё ещё активен. Для стабильной работы обычного Zapret рекомендуется сначала отключить Zapret2.\n\nПродолжить?';
+}
+
 async function runAction(target, value, confirmMsg) {
   if (busy) return;
+  const z2Warn = zapret2ActionWarning(target);
+  if (z2Warn && !confirm(z2Warn)) return;
   if (confirmMsg && !confirm(confirmMsg)) return;
   busy = true;
   setZapretError('');
@@ -454,6 +519,7 @@ async function runAction(target, value, confirmMsg) {
       return;
     }
     zapretData = data.data;
+    renderZapret2Banner(zapretData);
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
@@ -501,6 +567,15 @@ function switchTab(tabId) {
 document.getElementById('btn-zapret').addEventListener('click', showZapretModal);
 document.getElementById('zapret-close').addEventListener('click', hideZapretModal);
 document.getElementById('zapret-refresh').addEventListener('click', () => refreshZapret());
+
+document.getElementById('zapret-zapret2-banner').addEventListener('click', (e) => {
+  if (!e.target.closest('#zapret-zapret2-disable')) return;
+  runAction(
+      'zapret2_disable',
+      '',
+      'Отключить Zapret2?\n\nСлужба будет остановлена, автозапуск выключен, в настройках Zapret2 будет снята галочка Enabled.'
+    );
+});
 
 zapretOverlay.addEventListener('click', (e) => {
   if (e.target === zapretOverlay) hideZapretModal();
