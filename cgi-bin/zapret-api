@@ -207,7 +207,7 @@ api_status() {
 	hosts_preset=""
 	hosts_enabled && hosts_preset="$hosts_echo"
 
-	dv=$(grep -o -E '^#[[:space:]]*Dv[0-9]+' "$CONF" 2>/dev/null | sed 's/^#[[:space:]]*//' | head -n1)
+	dv=$(_detect_discord_ver)
 	gv=$(grep -o -E '^#Gv[0-9]+' "$CONF" 2>/dev/null | head -n1 | sed 's/^#//')
 	general=$(grep -m1 '^#general' "$CONF" 2>/dev/null | sed 's/^#//')
 
