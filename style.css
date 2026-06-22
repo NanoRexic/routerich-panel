@@ -1045,6 +1045,22 @@ body.modal-open {
   gap: 10px;
 }
 
+.zapret-credits {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.zapret-credits a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.zapret-credits a:hover {
+  text-decoration: underline;
+}
+
 .zp-select-row,
 .zp-youtube-row {
   display: flex;
