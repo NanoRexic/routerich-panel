@@ -90,7 +90,6 @@ function renderInstallBanner(d) {
   el.className = 'zapret-install-banner warn';
   el.innerHTML =
     '<strong>Zapret не установлен</strong>' +
-    '<p>Будут установлены пакеты zapret и LuCI с GitHub (remittor/zapret-openwrt), как в оригинальном Zapret Manager.</p>' +
     z2warn +
     '<button type="button" class="btn btn-primary btn-sm" id="zapret-install-btn">Установить Zapret' + latest + '</button>';
 }
