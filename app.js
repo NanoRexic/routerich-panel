@@ -223,6 +223,81 @@ if (operaProxyBtn) {
 
 refreshOperaProxyStatus();
 
+const panelUpdateBtn = document.getElementById('btn-update');
+let panelUpdateInfo = null;
+
+function setPanelUpdateVisible(visible, info) {
+  if (!panelUpdateBtn) return;
+  panelUpdateInfo = info || null;
+  panelUpdateBtn.hidden = !visible;
+  if (visible && info && info.latest) {
+    panelUpdateBtn.title = 'Доступна версия ' + info.latest + ' (сейчас ' + (info.current || '?') + ')';
+  } else {
+    panelUpdateBtn.title = '';
+  }
+}
+
+async function clearPanelCacheAndReload() {
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((reg) => reg.unregister()));
+  }
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  }
+  const url = new URL(location.href);
+  url.searchParams.set('_', String(Date.now()));
+  location.replace(url.toString());
+}
+
+async function refreshPanelUpdateStatus() {
+  if (!panelUpdateBtn) return;
+  try {
+    const data = await apiGet('panel-update');
+    if (data.ok && data.data && data.data.update_available) {
+      setPanelUpdateVisible(true, data.data);
+    } else {
+      setPanelUpdateVisible(false);
+    }
+  } catch (_) {
+    setPanelUpdateVisible(false);
+  }
+}
+
+if (panelUpdateBtn) {
+  panelUpdateBtn.addEventListener('click', async () => {
+    const latest = panelUpdateInfo && panelUpdateInfo.latest;
+    const current = panelUpdateInfo && panelUpdateInfo.current;
+    const versionHint = latest ? ' до версии ' + latest : '';
+    const currentHint = current ? ' (сейчас ' + current + ')' : '';
+
+    if (!confirm('Обновить панель' + versionHint + '?' + currentHint + '\n\nСтраница перезагрузится автоматически после обновления.')) {
+      return;
+    }
+
+    hideStatus();
+    showStatus('Скачивание обновления с GitHub… Подождите до 2 минут.', 'info');
+    panelUpdateBtn.disabled = true;
+
+    try {
+      const data = await apiPost('panel-update', '');
+      if (data.ok) {
+        showStatus((data.message || 'Панель обновлена.') + ' Перезагрузка…', 'success');
+        await clearPanelCacheAndReload();
+      } else {
+        showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+        panelUpdateBtn.disabled = false;
+      }
+    } catch (err) {
+      showStatus('Ошибка сети: ' + err.message, 'error');
+      panelUpdateBtn.disabled = false;
+    }
+  });
+}
+
+refreshPanelUpdateStatus();
+
 document.getElementById('btn-awg').addEventListener('click', showModal);
 document.getElementById('btn-cancel').addEventListener('click', hideModal);
 

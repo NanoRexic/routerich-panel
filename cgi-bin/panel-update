@@ -1,0 +1,176 @@
+#!/bin/sh
+
+REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
+PANEL_HOME="/www/routerich-panel"
+VERSION_LOCAL="/etc/routerich-panel/VERSION"
+UA='Mozilla/5.0 (compatible; RouteRich-Panel/1.0)'
+TMP_DIR="/tmp/routerich-update-$$"
+MANIFEST="$TMP_DIR/files.manifest"
+
+cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+json_err() {
+	printf '%s\n' "{\"ok\":false,\"error\":\"$1\"}"
+	exit 0
+}
+
+json_ok_status() {
+	current="$1"
+	latest="$2"
+	available="$3"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"current\":\"$current\",\"latest\":\"$latest\",\"update_available\":$available}}"
+	exit 0
+}
+
+json_ok_update() {
+	version="$1"
+	printf '%s\n' "{\"ok\":true,\"message\":\"Панель обновлена до версии $version\",\"data\":{\"version\":\"$version\"}}"
+	exit 0
+}
+
+fetch() {
+	url="$1"
+	out="$2"
+	case "$url" in
+		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
+		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
+	esac
+	if command -v wget >/dev/null 2>&1; then
+		wget -q -U "$UA" --no-cache -O "$out" "$bust_url" 2>/dev/null && return 0
+	fi
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
+	fi
+	return 1
+}
+
+ver_gt() {
+	awk -v a="$1" -v b="$2" 'BEGIN {
+		split(a, A, ".")
+		split(b, B, ".")
+		for (i = 1; i <= 3; i++) {
+			ai = A[i] + 0
+			bi = B[i] + 0
+			if (ai > bi) { exit 0 }
+			if (ai < bi) { exit 1 }
+		}
+		exit 1
+	}'
+}
+
+get_local_version() {
+	if [ -f "$VERSION_LOCAL" ]; then
+		tr -d '\r\n' < "$VERSION_LOCAL"
+		return
+	fi
+	if [ -f "$PANEL_HOME/VERSION" ]; then
+		tr -d '\r\n' < "$PANEL_HOME/VERSION"
+		return
+	fi
+	printf '0.0.0'
+}
+
+get_remote_version() {
+	mkdir -p "$TMP_DIR"
+	fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" || return 1
+	tr -d '\r\n' < "$TMP_DIR/VERSION"
+}
+
+deploy_file() {
+	src="$1"
+	dst="$2"
+	mode="$3"
+	url="$REPO_RAW/$src"
+	dir=$(dirname "$dst")
+	mkdir -p "$dir"
+	fetch "$url" "$dst" || return 1
+	chmod "$mode" "$dst" 2>/dev/null || true
+}
+
+deploy_fallback() {
+	deploy_file "cgi-bin/reboot" "/www/routerich-panel/cgi-bin/reboot" "755" || return 1
+	deploy_file "cgi-bin/fix-opera-proxy" "/www/routerich-panel/cgi-bin/fix-opera-proxy" "755" || return 1
+	deploy_file "cgi-bin/import-awg" "/www/routerich-panel/cgi-bin/import-awg" "755" || return 1
+	deploy_file "cgi-bin/generate-awg" "/www/routerich-panel/cgi-bin/generate-awg" "755" || return 1
+	deploy_file "cgi-bin/saved-awg" "/www/routerich-panel/cgi-bin/saved-awg" "755" || return 1
+	deploy_file "cgi-bin/zapret-api" "/www/routerich-panel/cgi-bin/zapret-api" "755" || return 1
+	deploy_file "cgi-bin/panel-update" "/www/routerich-panel/cgi-bin/panel-update" "755" || return 1
+	deploy_file "lib/zapret-headless.sh" "/etc/routerich-panel/zapret-headless.sh" "755" || return 1
+	deploy_file "index.html" "/www/routerich-panel/index.html" "644" || return 1
+	deploy_file "app.js" "/www/routerich-panel/app.js" "644" || return 1
+	deploy_file "shortcut.js" "/www/routerich-panel/shortcut.js" "644" || return 1
+	deploy_file "zapret.js" "/www/routerich-panel/zapret.js" "644" || return 1
+	deploy_file "style.css" "/www/routerich-panel/style.css" "644" || return 1
+	deploy_file "sw.js" "/www/routerich-panel/sw.js" "644" || return 1
+	deploy_file "icon.svg" "/www/routerich-panel/icon.svg" "644" || return 1
+	deploy_file "manifest.webmanifest" "/www/routerich-panel/manifest.webmanifest" "644" || return 1
+	deploy_file "VERSION" "/www/routerich-panel/VERSION" "644" || return 1
+	deploy_file "VERSION" "/etc/routerich-panel/VERSION" "644" || return 1
+	return 0
+}
+
+deploy_from_manifest() {
+	mkdir -p "$TMP_DIR"
+	fetch "$REPO_RAW/files.manifest" "$MANIFEST" || return 1
+
+	if command -v jq >/dev/null 2>&1; then
+		file_count=$(jq '.files | length' "$MANIFEST" 2>/dev/null) || file_count=0
+	else
+		file_count=0
+	fi
+
+	if [ "$file_count" -gt 0 ] 2>/dev/null; then
+		i=0
+		while [ "$i" -lt "$file_count" ]; do
+			src=$(jq -r ".files[$i].src" "$MANIFEST")
+			dst=$(jq -r ".files[$i].dst" "$MANIFEST")
+			mode=$(jq -r ".files[$i].mode" "$MANIFEST")
+			deploy_file "$src" "$dst" "$mode" || return 1
+			i=$((i + 1))
+		done
+		deploy_file "VERSION" "/www/routerich-panel/VERSION" "644" || return 1
+		deploy_file "VERSION" "/etc/routerich-panel/VERSION" "644" || return 1
+		return 0
+	fi
+
+	deploy_fallback
+}
+
+run_update() {
+	mkdir -p /etc/routerich-panel
+	deploy_from_manifest || json_err "Не удалось скачать файлы панели с GitHub"
+
+	latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
+	[ -n "$latest" ] || json_err "Пустая версия после обновления"
+
+	json_ok_update "$latest"
+}
+
+check_status() {
+	current=$(get_local_version)
+	latest=$(get_remote_version) || json_ok_status "$current" "$current" false
+
+	if ver_gt "$latest" "$current"; then
+		json_ok_status "$current" "$latest" true
+	fi
+
+	json_ok_status "$current" "$latest" false
+}
+
+echo "Content-Type: application/json"
+echo ""
+
+command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || json_err "wget или curl не найден"
+
+case "$REQUEST_METHOD" in
+	GET)
+		check_status
+		;;
+	POST)
+		run_update
+		;;
+	*)
+		json_err "Method not allowed"
+		;;
+esac
