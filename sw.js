@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'routerich-panel-v41';
+const CACHE = 'routerich-panel-v42';
 const ASSETS = [
   '/',
   '/index.html',
@@ -32,14 +32,12 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/cgi-bin/')) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) =>
-      cached || fetch(event.request).then((res) => {
-        if (res.ok && url.origin === self.location.origin) {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-        }
-        return res;
-      })
-    )
+    fetch(event.request).then((res) => {
+      if (res.ok && url.origin === self.location.origin) {
+        const copy = res.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(event.request))
   );
 });

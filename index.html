@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.0.14">
+  <meta name="routerich-version" content="1.0.15">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,7 +17,22 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="apple-touch-icon" sizes="180x180" href="icon.svg">
-  <link rel="stylesheet" href="style.css">
+  <script>
+    (function () {
+      var bust = '';
+      try {
+        bust = sessionStorage.getItem('routerich-hard-reload');
+        if (bust) sessionStorage.removeItem('routerich-hard-reload');
+      } catch (e) {}
+      if (!bust) {
+        var meta = document.querySelector('meta[name="routerich-version"]');
+        bust = meta && meta.content ? meta.content : String(Date.now());
+      }
+      window.__ROUTERICH_CACHE_BUST__ = bust;
+      var q = '?_=' + encodeURIComponent(bust);
+      document.write('<link rel="stylesheet" href="style.css' + q + '">');
+    })();
+  </script>
 </head>
 <body class="app">
   <header class="header">
@@ -340,8 +355,13 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
-  <script src="shortcut.js"></script>
-  <script src="zapret.js"></script>
+  <script>
+    (function () {
+      var q = '?_=' + encodeURIComponent(window.__ROUTERICH_CACHE_BUST__ || '1');
+      document.write('<script src="app.js' + q + '"><\/script>');
+      document.write('<script src="shortcut.js' + q + '"><\/script>');
+      document.write('<script src="zapret.js' + q + '"><\/script>');
+    })();
+  </script>
 </body>
 </html>

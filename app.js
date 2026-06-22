@@ -307,6 +307,11 @@ function setPanelUpdateVisible(visible, info) {
 }
 
 async function clearPanelCacheAndReload() {
+  const stamp = String(Date.now());
+  try {
+    sessionStorage.setItem('routerich-hard-reload', stamp);
+  } catch (_) {}
+
   if ('serviceWorker' in navigator) {
     const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(regs.map((reg) => reg.unregister()));
@@ -315,8 +320,10 @@ async function clearPanelCacheAndReload() {
     const keys = await caches.keys();
     await Promise.all(keys.map((key) => caches.delete(key)));
   }
+
   const url = new URL(location.href);
-  url.searchParams.set('_', String(Date.now()));
+  url.searchParams.set('_', stamp);
+  url.hash = '';
   location.replace(url.toString());
 }
 
@@ -501,7 +508,8 @@ dropZone.addEventListener('drop', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  const swBust = window.__ROUTERICH_CACHE_BUST__ || '1';
+  navigator.serviceWorker.register('sw.js?_=' + encodeURIComponent(swBust)).catch(() => {});
 }
 
 if (window.matchMedia('(display-mode: standalone)').matches) {
