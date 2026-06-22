@@ -3,12 +3,9 @@
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_HOME="/www/routerich-panel"
 VERSION_LOCAL="/etc/routerich-panel/VERSION"
-AWG_IFACE="awg10"
 UA='Mozilla/5.0 (compatible; RouteRich-Panel/1.0)'
 TMP_DIR="/tmp/routerich-update-$$"
 MANIFEST="$TMP_DIR/files.manifest"
-FETCH_ROUTE=""
-REMOTE_VERSION=""
 
 cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
@@ -22,144 +19,28 @@ json_ok_status() {
 	current="$1"
 	latest="$2"
 	available="$3"
-	via="$4"
-	extra=""
-	[ -n "$via" ] && extra=",\"github_via\":\"$via\""
-	printf '%s\n' "{\"ok\":true,\"data\":{\"current\":\"$current\",\"latest\":\"$latest\",\"update_available\":$available$extra}}"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"current\":\"$current\",\"latest\":\"$latest\",\"update_available\":$available}}"
 	exit 0
 }
 
 json_ok_update() {
 	version="$1"
-	via="$2"
-	msg="Панель обновлена до версии $version"
-	[ "$via" = "awg10" ] && msg="$msg (загрузка через awg10)"
-	extra=""
-	[ -n "$via" ] && extra=",\"github_via\":\"$via\""
-	printf '%s\n' "{\"ok\":true,\"message\":\"$msg\",\"data\":{\"version\":\"$version\"$extra}}"
+	printf '%s\n' "{\"ok\":true,\"message\":\"Панель обновлена до версии $version\",\"data\":{\"version\":\"$version\"}}"
 	exit 0
-}
-
-bust_url() {
-	url="$1"
-	case "$url" in
-		*\?*) printf '%s' "${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
-		*) printf '%s' "${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
-	esac
-}
-
-awg10_is_up() {
-	ip link show "$AWG_IFACE" 2>/dev/null | grep -qE 'UP|LOWER_UP'
-}
-
-awg10_route_available() {
-	awg10_is_up && command -v curl >/dev/null 2>&1
-}
-
-is_github_error_page() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	first=$(head -c 32 "$file" 2>/dev/null | tr -d '\r\n')
-	case "$first" in
-		"<!DOC"* | "<html"* | "<HTML"*)
-			grep -qiE '404|not found|rate limit|access denied|bad credentials' "$file" 2>/dev/null
-			;;
-		*) return 1 ;;
-	esac
-}
-
-version_probe_ok() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	is_github_error_page "$file" && return 1
-	tr -d '\r\n' < "$file" | grep -qE '^[0-9]+(\.[0-9]+){0,2}$'
-}
-
-download_file_ok() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	! is_github_error_page "$file"
-}
-
-try_fetch() {
-	url="$1"
-	out="$2"
-	iface="$3"
-	max_time="${4:-120}"
-	bust_url=$(bust_url "$url")
-
-	if command -v curl >/dev/null 2>&1; then
-		if [ -n "$iface" ]; then
-			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--interface "$iface" --connect-timeout 5 --max-time "$max_time" \
-				-o "$out" "$bust_url" 2>/dev/null && return 0
-		else
-			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--connect-timeout 5 --max-time "$max_time" \
-				-o "$out" "$bust_url" 2>/dev/null && return 0
-		fi
-	fi
-
-	if [ -z "$iface" ] && command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" -T "$max_time" -O "$out" "$bust_url" 2>/dev/null && return 0
-	fi
-
-	return 1
-}
-
-probe_route() {
-	route="$1"
-	iface=""
-	probe="$TMP_DIR/route-probe"
-
-	case "$route" in
-		awg10) iface="$AWG_IFACE" ;;
-		default) iface="" ;;
-		*) return 1 ;;
-	esac
-
-	try_fetch "$REPO_RAW/VERSION" "$probe" "$iface" 15 && version_probe_ok "$probe"
-}
-
-resolve_fetch_route() {
-	mkdir -p "$TMP_DIR"
-
-	if [ -n "$FETCH_ROUTE" ]; then
-		return 0
-	fi
-
-	if probe_route default; then
-		FETCH_ROUTE="default"
-		return 0
-	fi
-
-	if awg10_route_available && probe_route awg10; then
-		FETCH_ROUTE="awg10"
-		return 0
-	fi
-
-	if ! command -v curl >/dev/null 2>&1; then
-		json_err "GitHub недоступен напрямую. Для загрузки через awg10 требуется curl"
-	fi
-
-	return 1
 }
 
 fetch() {
 	url="$1"
 	out="$2"
-	iface=""
-
-	if ! resolve_fetch_route; then
-		return 1
+	case "$url" in
+		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
+		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
+	esac
+	if command -v wget >/dev/null 2>&1; then
+		wget -q -U "$UA" -O "$out" "$bust_url" 2>/dev/null && return 0
 	fi
-
-	if [ "$FETCH_ROUTE" = "awg10" ]; then
-		iface="$AWG_IFACE"
-	fi
-
-	if try_fetch "$url" "$out" "$iface" && download_file_ok "$out"; then
-		return 0
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	return 1
 }
@@ -226,10 +107,7 @@ sync_version_files() {
 get_remote_version() {
 	mkdir -p "$TMP_DIR"
 	fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" || return 1
-	version_probe_ok "$TMP_DIR/VERSION" || return 1
-	REMOTE_VERSION=$(tr -d '\r\n' < "$TMP_DIR/VERSION")
-	[ -n "$REMOTE_VERSION" ] || return 1
-	return 0
+	tr -d '\r\n' < "$TMP_DIR/VERSION"
 }
 
 deploy_file() {
@@ -294,26 +172,24 @@ deploy_from_manifest() {
 
 run_update() {
 	mkdir -p /etc/routerich-panel
-	if ! resolve_fetch_route; then
-		json_err "Не удалось подключиться к GitHub (ни напрямую, ни через awg10)"
-	fi
 	deploy_from_manifest || json_err "Не удалось скачать файлы панели с GitHub"
 
-	get_remote_version || json_err "Не удалось определить версию после обновления"
+	latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
+	[ -n "$latest" ] || json_err "Пустая версия после обновления"
 
-	json_ok_update "$REMOTE_VERSION" "$FETCH_ROUTE"
+	json_ok_update "$latest"
 }
 
 check_status() {
 	current=$(get_local_version)
 	sync_version_files "$current"
-	get_remote_version || json_ok_status "$current" "$current" false "$FETCH_ROUTE"
+	latest=$(get_remote_version) || json_ok_status "$current" "$current" false
 
-	if ver_gt "$REMOTE_VERSION" "$current"; then
-		json_ok_status "$current" "$REMOTE_VERSION" true "$FETCH_ROUTE"
+	if ver_gt "$latest" "$current"; then
+		json_ok_status "$current" "$latest" true
 	fi
 
-	json_ok_status "$current" "$REMOTE_VERSION" false "$FETCH_ROUTE"
+	json_ok_status "$current" "$latest" false
 }
 
 echo "Content-Type: application/json"

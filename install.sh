@@ -1,18 +1,16 @@
 #!/bin/sh
 # RouteRich panel — install on OpenWrt (download from GitHub)
 # Usage: wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
-# Env: REPO_RAW, PANEL_PORT, FETCH_VIA (awg10 — принудительно через VPN)
+# Env: REPO_RAW, PANEL_PORT
 
 set -e
 
 # github.com/raw works when /etc/hosts overrides raw.githubusercontent.com (Zapret)
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_PORT="${PANEL_PORT:-2020}"
-AWG_IFACE="awg10"
 UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
 TMP_DIR="/tmp/routerich-install-$$"
 MANIFEST="$TMP_DIR/files.manifest"
-FETCH_ROUTE=""
 
 log() { printf '[install] %s\n' "$1" >&2; }
 fail() { printf '[install] ERROR: %s\n' "$1" >&2; exit 1; }
@@ -20,138 +18,19 @@ fail() { printf '[install] ERROR: %s\n' "$1" >&2; exit 1; }
 cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
-bust_url() {
-	url="$1"
-	case "$url" in
-		*\?*) printf '%s' "${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
-		*) printf '%s' "${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
-	esac
-}
-
-awg10_is_up() {
-	ip link show "$AWG_IFACE" 2>/dev/null | grep -qE 'UP|LOWER_UP'
-}
-
-awg10_route_available() {
-	awg10_is_up && command -v curl >/dev/null 2>&1
-}
-
-is_github_error_page() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	first=$(head -c 32 "$file" 2>/dev/null | tr -d '\r\n')
-	case "$first" in
-		"<!DOC"* | "<html"* | "<HTML"*)
-			grep -qiE '404|not found|rate limit|access denied|bad credentials' "$file" 2>/dev/null
-			;;
-		*) return 1 ;;
-	esac
-}
-
-version_probe_ok() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	is_github_error_page "$file" && return 1
-	tr -d '\r\n' < "$file" | grep -qE '^[0-9]+(\.[0-9]+){0,2}$'
-}
-
-download_file_ok() {
-	file="$1"
-	[ -s "$file" ] || return 1
-	! is_github_error_page "$file"
-}
-
-try_fetch() {
-	url="$1"
-	out="$2"
-	iface="$3"
-	max_time="${4:-120}"
-	bust=$(bust_url "$url")
-
-	if command -v curl >/dev/null 2>&1; then
-		if [ -n "$iface" ]; then
-			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--interface "$iface" --connect-timeout 5 --max-time "$max_time" \
-				-o "$out" "$bust" 2>/dev/null && return 0
-		else
-			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--connect-timeout 5 --max-time "$max_time" \
-				-o "$out" "$bust" 2>/dev/null && return 0
-		fi
-	fi
-
-	if [ -z "$iface" ] && command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" -T "$max_time" -O "$out" "$bust" 2>/dev/null && return 0
-	fi
-
-	return 1
-}
-
-probe_route() {
-	route="$1"
-	iface=""
-	probe="$TMP_DIR/route-probe"
-
-	case "$route" in
-		awg10) iface="$AWG_IFACE" ;;
-		default) iface="" ;;
-		*) return 1 ;;
-	esac
-
-	try_fetch "$REPO_RAW/VERSION" "$probe" "$iface" 15 && version_probe_ok "$probe"
-}
-
-resolve_fetch_route() {
-	if [ -n "$FETCH_ROUTE" ]; then
-		return 0
-	fi
-
-	log "Проверка доступа к GitHub..."
-
-	if [ "$FETCH_VIA" = "awg10" ]; then
-		if awg10_route_available && probe_route awg10; then
-			FETCH_ROUTE="awg10"
-			log "Загрузка через $AWG_IFACE (FETCH_VIA)"
-			return 0
-		fi
-		fail "Не удалось скачать через $AWG_IFACE (интерфейс выключен или curl недоступен)"
-	fi
-
-	log "Пробуем напрямую..."
-	if probe_route default; then
-		FETCH_ROUTE="default"
-		return 0
-	fi
-
-	if awg10_route_available; then
-		log "Пробуем через $AWG_IFACE..."
-		if probe_route awg10; then
-			FETCH_ROUTE="awg10"
-			log "GitHub недоступен напрямую — загрузка через $AWG_IFACE"
-			return 0
-		fi
-	elif ! command -v curl >/dev/null 2>&1; then
-		fail "GitHub недоступен напрямую. Установите curl: opkg update && opkg install curl"
-	fi
-
-	return 1
-}
-
 fetch() {
 	url="$1"
 	out="$2"
-	iface=""
-
-	if ! resolve_fetch_route; then
-		return 1
+	# Bypass stale CDN cache on some networks (e.g. via /etc/hosts mirrors)
+	case "$url" in
+		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
+		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
+	esac
+	if command -v wget >/dev/null 2>&1; then
+		wget -q -U "$UA" --no-cache -O "$out" "$bust_url" 2>/dev/null && return 0
 	fi
-
-	if [ "$FETCH_ROUTE" = "awg10" ]; then
-		iface="$AWG_IFACE"
-	fi
-
-	if try_fetch "$url" "$out" "$iface" && download_file_ok "$out"; then
-		return 0
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	return 1
 }
@@ -182,7 +61,7 @@ mkdir -p "$TMP_DIR"
 log "RouteRich panel installer"
 log "Source: $REPO_RAW"
 
-fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub (ни напрямую, ни через $AWG_IFACE). Попробуйте: curl -fsSL --interface awg10 $REPO_RAW/install.sh | FETCH_VIA=awg10 sh"
+fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub"
 
 if ensure_jq; then
 	file_count=$(jq '.files | length' "$MANIFEST" 2>/dev/null) || file_count=0
@@ -249,7 +128,6 @@ fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" 2>/dev/null && VERSION=$(cat "$TMP_
 
 printf '\n=== Install complete ===\n'
 [ -n "$VERSION" ] && printf 'Version: %s\n' "$VERSION"
-[ "$FETCH_ROUTE" = "awg10" ] && printf 'Download route: %s\n' "$AWG_IFACE"
 printf 'Panel URL: %s\n' "$PANEL_URL"
 [ "$PREFERRED_PORT" != "$PANEL_PORT" ] && printf '(port %s was busy, using %s)\n' "$PREFERRED_PORT" "$PANEL_PORT"
 

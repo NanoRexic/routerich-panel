@@ -20,24 +20,8 @@
 
 **Шаг 2.** Скопируйте и вставьте одну команду — установка начнётся сама:
 
-**Если GitHub недоступен напрямую** (типично для Routerich без Zapret-hosts) — используйте awg10:
-
 ```sh
-curl -fsSL --interface awg10 https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | FETCH_VIA=awg10 sh
-```
-
-**Если GitHub доступен напрямую:**
-
-```sh
-wget -qO- https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
-```
-
-Универсальная команда (сама выберет маршрут):
-
-```sh
-wget -qO- https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh 2>/dev/null | sh \
-  || curl -fsSL https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh 2>/dev/null | sh \
-  || curl -fsSL --interface awg10 https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | FETCH_VIA=awg10 sh
+wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
 ```
 
 **Шаг 3.** Когда установка закончится, в терминале появится строка вида `Panel URL: http://...:2020/` — **нажмите на неё**, и панель откроется в браузере. Либо откройте вручную: **`http://routerich.lan:2020`**
@@ -45,7 +29,7 @@ wget -qO- https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/insta
 > Если порт 2020 занят, можно указать другой при установке:
 >
 > ```sh
-> export PANEL_PORT=2021; curl -fsSL --interface awg10 https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | FETCH_VIA=awg10 sh
+> PANEL_PORT=2021 wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
 > ```
 
 **Удаление панели** — та же схема, другая команда:
@@ -56,12 +40,7 @@ wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/unins
 
 ### Если установка не скачивает файлы
 
-Если видите `Connection timed out` при скачивании с GitHub:
-
-1. Убедитесь, что **AmneziaWG (awg10)** поднят: `ip link show awg10`
-2. Установите **curl**, если его нет: `opkg update && opkg install curl`
-3. Используйте команду с `FETCH_VIA=awg10` из шага 2 выше
-4. Либо установите панель через локальный установщик с Windows (способ 2) — он скачает файлы на компьютер и загрузит их на роутер
+В большинстве случаев установка с роутера проходит штатно. Проблема возможна, если **GitHub заблокирован** и роутер не может скачать файлы. Тогда можно установить панель через локальный установщик с Windows (способ 2) — он скачает файлы на компьютер и загрузит их на роутер.
 
 > Используйте ссылку через `github.com/.../raw/...`, а не `raw.githubusercontent.com` — вторая ссылка иногда отдаёт устаревшие файлы.
 

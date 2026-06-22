@@ -308,11 +308,7 @@ if (panelUpdateBtn) {
     try {
       const data = await apiPost('panel-update', '');
       if (data.ok) {
-        let doneMsg = data.message || 'Панель обновлена.';
-        if (data.data && data.data.github_via === 'awg10' && doneMsg.indexOf('awg10') === -1) {
-          doneMsg += ' (через awg10)';
-        }
-        showStatus(doneMsg + ' Перезагрузка…', 'success');
+        showStatus((data.message || 'Панель обновлена.') + ' Перезагрузка…', 'success');
         await clearPanelCacheAndReload();
       } else {
         showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');

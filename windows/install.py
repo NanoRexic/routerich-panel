@@ -145,8 +145,7 @@ def run_remote_install(client: paramiko.SSHClient, host: str, panel_port: int) -
     cmd = (
         f"export PANEL_PORT={panel_port} REPO_RAW='{REPO_RAW}'; "
         f"wget -qO- '{INSTALL_SCRIPT_URL}' 2>/dev/null | sh "
-        f"|| curl -fsSL '{INSTALL_SCRIPT_URL}' 2>/dev/null | sh "
-        f"|| curl -fsSL --interface awg10 '{INSTALL_SCRIPT_URL}' | FETCH_VIA=awg10 sh"
+        f"|| curl -fsSL '{INSTALL_SCRIPT_URL}' | sh"
     )
     print("Running install.sh on router (download from GitHub)...")
     code, out, err = run_cmd(client, cmd, timeout=300)
