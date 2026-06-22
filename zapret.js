@@ -60,7 +60,7 @@ function zapret2StatusParts(z2) {
   const parts = [];
   if (z2.running) parts.push('служба запущена');
   if (z2.autostart) parts.push('автозапуск включён');
-  if (z2.enabled) parts.push('включён в LuCI');
+  if (z2.enabled) parts.push('Enabled в настройках Zapret2');
   return parts;
 }
 
