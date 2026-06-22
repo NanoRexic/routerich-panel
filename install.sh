@@ -1,7 +1,7 @@
 #!/bin/sh
 # RouteRich panel — install on OpenWrt (download from GitHub)
 # Usage: wget -O - https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main/install.sh | sh
-# Env: REPO_RAW, PANEL_PORT
+# Env: REPO_RAW, PANEL_PORT, FETCH_VIA (awg10 — принудительно через VPN)
 
 set -e
 
@@ -9,7 +9,6 @@ set -e
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_PORT="${PANEL_PORT:-2020}"
 AWG_IFACE="awg10"
-GITHUB_CHECK_HOST="github.com"
 UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
 TMP_DIR="/tmp/routerich-install-$$"
 MANIFEST="$TMP_DIR/files.manifest"
@@ -33,9 +32,8 @@ awg10_is_up() {
 	ip link show "$AWG_IFACE" 2>/dev/null | grep -qE 'UP|LOWER_UP'
 }
 
-awg10_ping_github_ok() {
-	awg10_is_up || return 1
-	ping -I "$AWG_IFACE" -c 1 -W 3 "$GITHUB_CHECK_HOST" >/dev/null 2>&1
+awg10_route_available() {
+	awg10_is_up && command -v curl >/dev/null 2>&1
 }
 
 version_probe_ok() {
@@ -55,49 +53,73 @@ try_fetch() {
 	url="$1"
 	out="$2"
 	iface="$3"
+	max_time="${4:-120}"
 	bust=$(bust_url "$url")
 
 	if command -v curl >/dev/null 2>&1; then
 		if [ -n "$iface" ]; then
 			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--interface "$iface" --connect-timeout 10 --max-time 120 \
+				--interface "$iface" --connect-timeout 5 --max-time "$max_time" \
 				-o "$out" "$bust" 2>/dev/null && return 0
 		else
 			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
-				--connect-timeout 10 --max-time 120 \
+				--connect-timeout 5 --max-time "$max_time" \
 				-o "$out" "$bust" 2>/dev/null && return 0
 		fi
 	fi
 
 	if [ -z "$iface" ] && command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" -T 120 -O "$out" "$bust" 2>/dev/null && return 0
+		wget -q -U "$UA" -T "$max_time" -O "$out" "$bust" 2>/dev/null && return 0
 	fi
 
 	return 1
 }
 
-resolve_fetch_route() {
+probe_route() {
+	route="$1"
+	iface=""
 	probe="$TMP_DIR/route-probe"
 
+	case "$route" in
+		awg10) iface="$AWG_IFACE" ;;
+		default) iface="" ;;
+		*) return 1 ;;
+	esac
+
+	try_fetch "$REPO_RAW/VERSION" "$probe" "$iface" 15 && version_probe_ok "$probe"
+}
+
+resolve_fetch_route() {
 	if [ -n "$FETCH_ROUTE" ]; then
 		return 0
 	fi
 
-	if try_fetch "$REPO_RAW/VERSION" "$probe" "" && version_probe_ok "$probe"; then
+	log "Проверка доступа к GitHub..."
+
+	if [ "$FETCH_VIA" = "awg10" ]; then
+		if awg10_route_available && probe_route awg10; then
+			FETCH_ROUTE="awg10"
+			log "Загрузка через $AWG_IFACE (FETCH_VIA)"
+			return 0
+		fi
+		fail "Не удалось скачать через $AWG_IFACE (интерфейс выключен или curl недоступен)"
+	fi
+
+	log "Пробуем напрямую..."
+	if probe_route default; then
 		FETCH_ROUTE="default"
 		return 0
 	fi
 
-	if awg10_ping_github_ok; then
-		if command -v curl >/dev/null 2>&1; then
-			if try_fetch "$REPO_RAW/VERSION" "$probe" "$AWG_IFACE" && version_probe_ok "$probe"; then
-				FETCH_ROUTE="awg10"
-				log "GitHub недоступен напрямую — загрузка через $AWG_IFACE"
-				return 0
-			fi
-		else
-			fail "GitHub недоступен напрямую. Установите curl для загрузки через $AWG_IFACE"
+	if awg10_route_available; then
+		log "Пробуем через $AWG_IFACE..."
+		if probe_route awg10; then
+			FETCH_ROUTE="awg10"
+			log "GitHub недоступен напрямую — загрузка через $AWG_IFACE"
+			return 0
 		fi
+	elif ! command -v curl >/dev/null 2>&1; then
+		fail "GitHub недоступен напрямую. Установите curl: opkg update && opkg install curl"
 	fi
 
 	return 1
@@ -148,7 +170,7 @@ mkdir -p "$TMP_DIR"
 log "RouteRich panel installer"
 log "Source: $REPO_RAW"
 
-fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub (ни напрямую, ни через $AWG_IFACE)"
+fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub (ни напрямую, ни через $AWG_IFACE). Попробуйте: curl -fsSL --interface awg10 $REPO_RAW/install.sh | FETCH_VIA=awg10 sh"
 
 if ensure_jq; then
 	file_count=$(jq '.files | length' "$MANIFEST" 2>/dev/null) || file_count=0
