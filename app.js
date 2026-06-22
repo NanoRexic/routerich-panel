@@ -226,6 +226,21 @@ refreshOperaProxyStatus();
 const panelUpdateBtn = document.getElementById('btn-update');
 let panelUpdateInfo = null;
 
+function getEmbeddedPanelVersion() {
+  const meta = document.querySelector('meta[name="routerich-version"]');
+  return meta && meta.content ? meta.content.trim() : '';
+}
+
+function versionGt(a, b) {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return true;
+    if (pa[i] < pb[i]) return false;
+  }
+  return false;
+}
+
 function setPanelUpdateVisible(visible, info) {
   if (!panelUpdateBtn) return;
   panelUpdateInfo = info || null;
@@ -254,8 +269,18 @@ async function clearPanelCacheAndReload() {
 async function refreshPanelUpdateStatus() {
   if (!panelUpdateBtn) return;
   try {
-    const data = await apiGet('panel-update');
+    const res = await fetch('/cgi-bin/panel-update?_=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store'
+    });
+    const data = await res.json().catch(() => ({ ok: false }));
     if (data.ok && data.data && data.data.update_available) {
+      const embedded = getEmbeddedPanelVersion();
+      const latest = data.data.latest || '';
+      if (embedded && !versionGt(latest, embedded)) {
+        setPanelUpdateVisible(false);
+        return;
+      }
       setPanelUpdateVisible(true, data.data);
     } else {
       setPanelUpdateVisible(false);
