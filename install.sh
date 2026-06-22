@@ -8,9 +8,12 @@ set -e
 # github.com/raw works when /etc/hosts overrides raw.githubusercontent.com (Zapret)
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_PORT="${PANEL_PORT:-2020}"
+AWG_IFACE="awg10"
+GITHUB_CHECK_HOST="github.com"
 UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
 TMP_DIR="/tmp/routerich-install-$$"
 MANIFEST="$TMP_DIR/files.manifest"
+FETCH_ROUTE=""
 
 log() { printf '[install] %s\n' "$1" >&2; }
 fail() { printf '[install] ERROR: %s\n' "$1" >&2; exit 1; }
@@ -18,19 +21,103 @@ fail() { printf '[install] ERROR: %s\n' "$1" >&2; exit 1; }
 cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
+bust_url() {
+	url="$1"
+	case "$url" in
+		*\?*) printf '%s' "${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
+		*) printf '%s' "${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
+	esac
+}
+
+awg10_is_up() {
+	ip link show "$AWG_IFACE" 2>/dev/null | grep -qE 'UP|LOWER_UP'
+}
+
+awg10_ping_github_ok() {
+	awg10_is_up || return 1
+	ping -I "$AWG_IFACE" -c 1 -W 3 "$GITHUB_CHECK_HOST" >/dev/null 2>&1
+}
+
+version_probe_ok() {
+	file="$1"
+	[ -s "$file" ] || return 1
+	grep -qi '<html' "$file" 2>/dev/null && return 1
+	tr -d '\r\n' < "$file" | grep -qE '^[0-9]+(\.[0-9]+){0,2}$'
+}
+
+download_file_ok() {
+	file="$1"
+	[ -s "$file" ] || return 1
+	! grep -qi '<html' "$file" 2>/dev/null
+}
+
+try_fetch() {
+	url="$1"
+	out="$2"
+	iface="$3"
+	bust=$(bust_url "$url")
+
+	if command -v curl >/dev/null 2>&1; then
+		if [ -n "$iface" ]; then
+			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
+				--interface "$iface" --connect-timeout 10 --max-time 120 \
+				-o "$out" "$bust" 2>/dev/null && return 0
+		else
+			curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' \
+				--connect-timeout 10 --max-time 120 \
+				-o "$out" "$bust" 2>/dev/null && return 0
+		fi
+	fi
+
+	if [ -z "$iface" ] && command -v wget >/dev/null 2>&1; then
+		wget -q -U "$UA" -T 120 -O "$out" "$bust" 2>/dev/null && return 0
+	fi
+
+	return 1
+}
+
+resolve_fetch_route() {
+	probe="$TMP_DIR/route-probe"
+
+	if [ -n "$FETCH_ROUTE" ]; then
+		return 0
+	fi
+
+	if try_fetch "$REPO_RAW/VERSION" "$probe" "" && version_probe_ok "$probe"; then
+		FETCH_ROUTE="default"
+		return 0
+	fi
+
+	if awg10_ping_github_ok; then
+		if command -v curl >/dev/null 2>&1; then
+			if try_fetch "$REPO_RAW/VERSION" "$probe" "$AWG_IFACE" && version_probe_ok "$probe"; then
+				FETCH_ROUTE="awg10"
+				log "GitHub недоступен напрямую — загрузка через $AWG_IFACE"
+				return 0
+			fi
+		else
+			fail "GitHub недоступен напрямую. Установите curl для загрузки через $AWG_IFACE"
+		fi
+	fi
+
+	return 1
+}
+
 fetch() {
 	url="$1"
 	out="$2"
-	# Bypass stale CDN cache on some networks (e.g. via /etc/hosts mirrors)
-	case "$url" in
-		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
-		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
-	esac
-	if command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" --no-cache -O "$out" "$bust_url" 2>/dev/null && return 0
+	iface=""
+
+	if ! resolve_fetch_route; then
+		return 1
 	fi
-	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
+
+	if [ "$FETCH_ROUTE" = "awg10" ]; then
+		iface="$AWG_IFACE"
+	fi
+
+	if try_fetch "$url" "$out" "$iface" && download_file_ok "$out"; then
+		return 0
 	fi
 	return 1
 }
@@ -61,7 +148,7 @@ mkdir -p "$TMP_DIR"
 log "RouteRich panel installer"
 log "Source: $REPO_RAW"
 
-fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub"
+fetch "$REPO_RAW/files.manifest" "$MANIFEST" || fail "cannot download files.manifest from GitHub (ни напрямую, ни через $AWG_IFACE)"
 
 if ensure_jq; then
 	file_count=$(jq '.files | length' "$MANIFEST" 2>/dev/null) || file_count=0
@@ -128,6 +215,7 @@ fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" 2>/dev/null && VERSION=$(cat "$TMP_
 
 printf '\n=== Install complete ===\n'
 [ -n "$VERSION" ] && printf 'Version: %s\n' "$VERSION"
+[ "$FETCH_ROUTE" = "awg10" ] && printf 'Download route: %s\n' "$AWG_IFACE"
 printf 'Panel URL: %s\n' "$PANEL_URL"
 [ "$PREFERRED_PORT" != "$PANEL_PORT" ] && printf '(port %s was busy, using %s)\n' "$PREFERRED_PORT" "$PANEL_PORT"
 
