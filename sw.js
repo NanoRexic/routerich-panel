@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'routerich-panel-v37';
+const CACHE = 'routerich-panel-v38';
 const ASSETS = [
   '/',
   '/index.html',

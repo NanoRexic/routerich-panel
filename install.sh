@@ -36,17 +36,29 @@ awg10_route_available() {
 	awg10_is_up && command -v curl >/dev/null 2>&1
 }
 
+is_github_error_page() {
+	file="$1"
+	[ -s "$file" ] || return 1
+	first=$(head -c 32 "$file" 2>/dev/null | tr -d '\r\n')
+	case "$first" in
+		"<!DOC"* | "<html"* | "<HTML"*)
+			grep -qiE '404|not found|rate limit|access denied|bad credentials' "$file" 2>/dev/null
+			;;
+		*) return 1 ;;
+	esac
+}
+
 version_probe_ok() {
 	file="$1"
 	[ -s "$file" ] || return 1
-	grep -qi '<html' "$file" 2>/dev/null && return 1
+	is_github_error_page "$file" && return 1
 	tr -d '\r\n' < "$file" | grep -qE '^[0-9]+(\.[0-9]+){0,2}$'
 }
 
 download_file_ok() {
 	file="$1"
 	[ -s "$file" ] || return 1
-	! grep -qi '<html' "$file" 2>/dev/null
+	! is_github_error_page "$file"
 }
 
 try_fetch() {
