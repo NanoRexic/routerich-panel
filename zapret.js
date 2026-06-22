@@ -52,7 +52,8 @@ function fmtStrategy(s) {
 }
 
 function isZapret2Active(z2) {
-  return !!(z2 && z2.installed && z2.active);
+  if (!z2 || !z2.installed) return false;
+  return !!(z2.running || z2.autostart);
 }
 
 function zapret2StatusParts(z2) {
@@ -60,7 +61,6 @@ function zapret2StatusParts(z2) {
   const parts = [];
   if (z2.running) parts.push('служба запущена');
   if (z2.autostart) parts.push('автозапуск включён');
-  if (z2.enabled) parts.push('Enabled в настройках Zapret2');
   return parts;
 }
 
@@ -83,7 +83,8 @@ function renderZapret2Banner(d) {
     el.innerHTML =
       '<strong>На роутере активен Zapret2</strong>' +
       '<p>На Routerich он установлен по умолчанию. Перед использованием обычного Zapret (v1) ' +
-      'нужно полностью отключить Zapret2 — иначе обе системы будут конфликтовать.</p>' +
+      'нужно остановить Zapret2 и отключить его автозапуск — иначе обе системы будут конфликтовать.</p>' +
+      '<p class="zp-zapret2-meta">Кнопка ниже не меняет настройки в LuCI — Zapret2 можно снова включить вручную.</p>' +
       (meta ? '<p class="zp-zapret2-meta">Сейчас: ' + meta + '</p>' : '') +
       '<button type="button" class="btn btn-secondary btn-sm" id="zapret-zapret2-disable">' +
       'Отключить Zapret2</button>';
@@ -100,8 +101,8 @@ function renderZapret2Banner(d) {
   el.className = 'zapret-zapret2-banner ok';
   el.innerHTML =
     '<strong>Zapret2 отключён</strong>' +
-    '<p>Можно устанавливать и настраивать обычный Zapret через эту панель. ' +
-    'Управление Zapret2 — в LuCI: Службы → Zapret2.</p>';
+    '<p>Можно устанавливать и настраивать обычный Zapret через эту панель.</p>' +
+    '<p class="zp-zapret2-meta">Чтобы снова включить Zapret2: LuCI → Службы → Zapret2 → автозапуск и запуск службы.</p>';
 }
 
 function renderOverview(d) {
@@ -589,7 +590,10 @@ document.getElementById('zapret-zapret2-banner').addEventListener('click', (e) =
   runAction(
       'zapret2_disable',
       '',
-      'Отключить Zapret2?\n\nСлужба будет остановлена, автозапуск выключен, в настройках Zapret2 будет снята галочка Enabled.'
+      'Остановить Zapret2 для работы с обычным Zapret?\n\n' +
+      '• Остановит службу\n' +
+      '• Отключит автозапуск\n' +
+      '• Настройки Enabled в LuCI не изменятся'
     );
 });
 

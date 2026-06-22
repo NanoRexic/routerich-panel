@@ -91,7 +91,7 @@ api_zapret2_status_json() {
 	fi
 
 	z2_active=0
-	if [ "$z2_running" -eq 1 ] || [ "$z2_autostart" -eq 1 ] || [ "$z2_enabled" -eq 1 ]; then
+	if [ "$z2_running" -eq 1 ] || [ "$z2_autostart" -eq 1 ]; then
 		z2_active=1
 	fi
 
@@ -116,15 +116,17 @@ disable_zapret2_api() {
 		return 1
 	fi
 
-	if [ -f /etc/config/zapret2 ]; then
-		uci -q set zapret2.main.enabled='0' 2>/dev/null
-		uci commit zapret2 2>/dev/null
-	fi
 	if [ -f /etc/init.d/zapret2 ]; then
-		/etc/init.d/zapret2 stop >/dev/null 2>&1
-		/etc/init.d/zapret2 disable >/dev/null 2>&1
+		/etc/init.d/zapret2 stop >/dev/null 2>&1 || true
+		/etc/init.d/zapret2 disable >/dev/null 2>&1 || true
 	fi
-	killall nfqws2 2>/dev/null
+
+	# Не меняем zapret2.main.enabled — настройки LuCI сохраняются.
+	# Если stop не завершил процесс, добиваем вручную.
+	if pgrep -x nfqws2 >/dev/null 2>&1; then
+		killall nfqws2 2>/dev/null || true
+		sleep 1
+	fi
 	return 0
 }
 
