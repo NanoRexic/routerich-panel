@@ -63,7 +63,7 @@ def main() -> int:
         f"Скачайте **`{zip_path.name}`**, распакуйте и запустите:\n"
         "1. `1-Install-Prerequisites.bat`\n"
         "2. `2-Install-Panel.bat`\n\n"
-        "Установщик подключается к Routerich по SSH и ставит панель на роутер.\n"
+        "Установщик подключается к Routerich по SSH и ставит панель с локальных файлов (интернет не нужен).\n"
     )
 
     release = None

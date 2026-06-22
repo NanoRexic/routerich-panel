@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""RouteRich panel installer for Windows — SSH to OpenWrt router."""
+"""RouteRich panel installer for Windows — offline SSH deploy to OpenWrt."""
 
 from __future__ import annotations
 
 import argparse
 import getpass
-import json
-import re
 import sys
-import tempfile
-import urllib.error
-import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -25,12 +20,11 @@ INSTALLER_DIR = Path(__file__).resolve().parent
 
 sys.path.insert(0, str(INSTALLER_DIR))
 from config_store import append_install_history, print_install_history, warn_legacy_config  # noqa: E402
-from github_config import INSTALL_SCRIPT_URL, MANIFEST_URL, REPO_RAW  # noqa: E402
 from netutil import detect_default_gateway  # noqa: E402
+from panel_paths import load_manifest, resolve_panel_root, setup_script_path  # noqa: E402
 from sshutil import NativeSSHClient, connect_ssh, format_ssh_error  # noqa: E402
 
 FORBIDDEN_PORTS = {80, 443}
-UA = "Mozilla/5.0 (compatible; RouteRich-Windows-Installer/1.0)"
 
 
 def cli_flag_value(flag: str) -> str | None:
@@ -70,35 +64,11 @@ def upload_file(client: paramiko.SSHClient | NativeSSHClient, local: Path, remot
     run_cmd(client, f"chmod {mode} '{remote}'", timeout=15)
 
 
-def fetch_url(url: str, timeout: int = 60) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
-
-
-def load_manifest_from_github() -> dict:
-    data = fetch_url(MANIFEST_URL)
-    return json.loads(data.decode("utf-8"))
-
-
-def download_panel_to_temp(manifest: dict) -> Path:
-    tmp = Path(tempfile.mkdtemp(prefix="routerich-panel-"))
+def deploy_files(client: paramiko.SSHClient, manifest: dict, panel_root: Path) -> None:
     for entry in manifest["files"]:
-        src = entry["src"]
-        url = f"{REPO_RAW}/{src}"
-        local_path = tmp / src
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.write_bytes(fetch_url(url))
-    setup = tmp / "setup-panel.sh"
-    setup.write_bytes(fetch_url(f"{REPO_RAW}/setup-panel.sh"))
-    return tmp
-
-
-def deploy_files_from_dir(client: paramiko.SSHClient, manifest: dict, root: Path) -> None:
-    for entry in manifest["files"]:
-        src = root / entry["src"]
+        src = panel_root / entry["src"]
         if not src.is_file():
-            raise FileNotFoundError(f"Downloaded file missing: {src}")
+            raise FileNotFoundError(f"Missing panel file: {src}")
         upload_file(client, src, entry["dst"], entry["mode"])
         print(f"  OK {entry['dst']}")
 
@@ -123,44 +93,6 @@ def run_router_setup(client: paramiko.SSHClient, setup_script: Path, preferred_p
     return result
 
 
-def parse_install_output(output: str, host: str) -> tuple[str, str]:
-    panel_url = ""
-    panel_port = ""
-    for line in output.splitlines():
-        if "Panel URL:" in line:
-            panel_url = line.split("Panel URL:", 1)[1].strip()
-        m = re.search(r"port (\d+) was busy, using (\d+)", line)
-        if m:
-            panel_port = m.group(2)
-    if not panel_url and panel_port:
-        panel_url = f"http://{host}:{panel_port}/"
-    if panel_url and not panel_port:
-        m = re.search(r":(\d+)/", panel_url)
-        if m:
-            panel_port = m.group(1)
-    return panel_url, panel_port
-
-
-def run_remote_install(client: paramiko.SSHClient, host: str, panel_port: int) -> tuple[str, str]:
-    cmd = (
-        f"export PANEL_PORT={panel_port} REPO_RAW='{REPO_RAW}'; "
-        f"wget -qO- '{INSTALL_SCRIPT_URL}' 2>/dev/null | sh "
-        f"|| curl -fsSL '{INSTALL_SCRIPT_URL}' | sh"
-    )
-    print("Running install.sh on router (download from GitHub)...")
-    code, out, err = run_cmd(client, cmd, timeout=300)
-    combined = (out + "\n" + err).strip()
-    if code != 0:
-        raise RuntimeError(f"Remote install failed:\n{combined}")
-    if combined:
-        for line in combined.splitlines():
-            print(f"  {line}")
-    panel_url, chosen_port = parse_install_output(combined, host)
-    if not panel_url:
-        raise RuntimeError(f"Install finished but panel URL not found:\n{combined}")
-    return panel_url, chosen_port or str(panel_port)
-
-
 def verify_panel(client: paramiko.SSHClient, panel_port: str) -> bool:
     code, out, _ = run_cmd(
         client,
@@ -171,7 +103,7 @@ def verify_panel(client: paramiko.SSHClient, panel_port: str) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Install RouteRich panel on OpenWrt")
+    parser = argparse.ArgumentParser(description="Install RouteRich panel on OpenWrt (offline)")
     parser.add_argument("--host", default=None, help="Router IP override")
     parser.add_argument("--user", default="root", help="SSH username")
     parser.add_argument("--password", default=None, help="SSH password")
@@ -179,9 +111,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ssh-port", type=int, default=22, help="SSH port")
     parser.add_argument("--panel-port", type=int, default=2020, help="Preferred panel HTTP port")
     parser.add_argument(
-        "--local-upload",
-        action="store_true",
-        help="Download files on PC and upload via SSH (if router cannot reach GitHub)",
+        "--panel-root",
+        default=None,
+        help="Path to panel files (default: ./panel or repo root)",
     )
     parser.add_argument("--save-history", action="store_true", help="Log successful install locally")
     parser.add_argument("--show-history", action="store_true", help="Show install history and exit")
@@ -243,24 +175,6 @@ def resolve_password(cli_password: str | None, empty_password: bool) -> str:
     return prompt_password()
 
 
-def install_local_upload(client: paramiko.SSHClient, panel_port: int, host: str) -> tuple[str, str]:
-    print("Downloading panel files from GitHub...")
-    try:
-        manifest = load_manifest_from_github()
-        tmp_root = download_panel_to_temp(manifest)
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Cannot download from GitHub: {exc}") from exc
-
-    print("Uploading panel files...")
-    deploy_files_from_dir(client, manifest, tmp_root)
-
-    print("Configuring uhttpd on router...")
-    setup = run_router_setup(client, tmp_root / "setup-panel.sh", panel_port)
-    panel_port_str = setup["PANEL_PORT"]
-    panel_url = setup.get("PANEL_URL", f"http://{host}:{panel_port_str}/")
-    return panel_url, panel_port_str
-
-
 def main() -> int:
     warn_legacy_config()
     args = parse_args()
@@ -288,6 +202,13 @@ def main() -> int:
             print(f"SSH test failed: {format_ssh_error(exc, host)}", file=sys.stderr)
             return 1
 
+    try:
+        panel_root = resolve_panel_root(args.panel_root)
+        manifest = load_manifest(panel_root)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     if args.panel_port in FORBIDDEN_PORTS:
         print("Error: ports 80 and 443 are reserved for LuCI.", file=sys.stderr)
         return 1
@@ -296,7 +217,8 @@ def main() -> int:
     print("=== RouteRich panel install ===")
     print(f"Router: {user}@{host}:{args.ssh_port}")
     print(f"Preferred panel port: {args.panel_port}")
-    print(f"Mode: {'local upload' if args.local_upload else 'remote install.sh on router'}")
+    print(f"Panel files: {panel_root}")
+    print("Mode: local upload via SSH (offline)")
     print()
 
     try:
@@ -307,15 +229,13 @@ def main() -> int:
         return 1
 
     try:
-        if args.local_upload:
-            panel_url, panel_port = install_local_upload(client, args.panel_port, host)
-        else:
-            try:
-                panel_url, panel_port = run_remote_install(client, host, args.panel_port)
-            except Exception as remote_exc:
-                print(f"Remote install failed: {remote_exc}", file=sys.stderr)
-                print("Retrying with --local-upload (download on PC, upload via SSH)...")
-                panel_url, panel_port = install_local_upload(client, args.panel_port, host)
+        print("Uploading panel files...")
+        deploy_files(client, manifest, panel_root)
+
+        print("Configuring uhttpd on router...")
+        setup = run_router_setup(client, setup_script_path(panel_root), args.panel_port)
+        panel_port = setup["PANEL_PORT"]
+        panel_url = setup.get("PANEL_URL", f"http://{host}:{panel_port}/")
 
         if not args.skip_verify:
             print("Verifying panel HTTP...")
@@ -335,7 +255,7 @@ def main() -> int:
         print()
         print("=== Install complete ===")
         print(f"Panel URL: {format_clickable_url(panel_url)}")
-        if str(panel_port) != str(args.panel_port):
+        if panel_port != str(args.panel_port):
             print(f"(port {args.panel_port} was busy, using {panel_port})")
         if not args.no_open_browser:
             if open_panel_in_browser(panel_url):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RouteRich panel uninstaller for Windows."""
+"""RouteRich panel uninstaller for Windows — offline SSH cleanup."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ INSTALLER_DIR = Path(__file__).resolve().parent
 
 sys.path.insert(0, str(INSTALLER_DIR))
 from config_store import warn_legacy_config  # noqa: E402
-from github_config import UNINSTALL_SCRIPT_URL  # noqa: E402
 from netutil import detect_default_gateway  # noqa: E402
 from sshutil import connect_ssh, format_ssh_error  # noqa: E402
 
@@ -59,41 +58,15 @@ def resolve_password(cli_password: str | None, empty_password: bool) -> str:
     return prompt_password()
 
 
-def run_remote_uninstall(client: paramiko.SSHClient) -> None:
-    cmd = (
-        f"wget -qO- '{UNINSTALL_SCRIPT_URL}' 2>/dev/null | sh "
-        f"|| curl -fsSL '{UNINSTALL_SCRIPT_URL}' | sh"
-    )
-    code, out, err = run_cmd(client, cmd, timeout=120)
-    combined = (out + "\n" + err).strip()
-    if combined:
-        for line in combined.splitlines():
-            print(f"  {line}")
-    if code != 0:
-        raise RuntimeError(f"Remote uninstall failed:\n{combined}")
-
-
-def run_local_uninstall(client: paramiko.SSHClient) -> None:
-    cmds = [
-        ("Remove uhttpd.panel", "uci -q delete uhttpd.panel 2>/dev/null; uci commit uhttpd 2>/dev/null; /etc/init.d/uhttpd restart 2>/dev/null"),
-        ("Remove web files", "rm -rf /www/routerich-panel"),
-        ("Remove panel data", "rm -rf /etc/routerich-panel"),
-    ]
-    for label, cmd in cmds:
-        print(f"  {label}...")
-        run_cmd(client, cmd, timeout=60)
-
-
 def main() -> int:
     warn_legacy_config()
 
-    parser = argparse.ArgumentParser(description="Uninstall RouteRich panel")
+    parser = argparse.ArgumentParser(description="Uninstall RouteRich panel (offline)")
     parser.add_argument("--host", default=None, help="Router IP override")
     parser.add_argument("--user", default="root", help="SSH username")
     parser.add_argument("--password", default=None, help="SSH password")
     parser.add_argument("--empty-password", action="store_true", help="Use empty SSH password")
     parser.add_argument("--ssh-port", type=int, default=22, help="SSH port")
-    parser.add_argument("--local", action="store_true", help="Run uninstall commands directly (no wget)")
     args = parser.parse_args()
 
     host = cli_flag_value("--host")
@@ -125,15 +98,16 @@ def main() -> int:
         print(f"SSH error: {format_ssh_error(exc, host)}", file=sys.stderr)
         return 1
 
+    cmds = [
+        ("Remove uhttpd.panel", "uci -q delete uhttpd.panel 2>/dev/null; uci commit uhttpd 2>/dev/null; /etc/init.d/uhttpd restart 2>/dev/null"),
+        ("Remove web files", "rm -rf /www/routerich-panel"),
+        ("Remove panel data", "rm -rf /etc/routerich-panel"),
+        ("Remove temp scripts", "rm -f /tmp/routerich-setup-panel.sh"),
+    ]
     try:
-        if args.local:
-            run_local_uninstall(client)
-        else:
-            try:
-                run_remote_uninstall(client)
-            except Exception:
-                print("Remote uninstall failed, running commands directly...")
-                run_local_uninstall(client)
+        for label, cmd in cmds:
+            print(f"  {label}...")
+            run_cmd(client, cmd, timeout=60)
         print()
         print("Panel removed from router.")
         print()
