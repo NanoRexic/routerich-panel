@@ -1,16 +1,127 @@
 #!/bin/sh
 
-IFACE="awg10"
-PEER_SECTION="@amneziawg_awg10[0]"
-
 json_err() {
 	printf '%s\n' "{\"ok\":false,\"error\":\"$1\"}"
 	exit 0
 }
 
 json_ok() {
-	printf '%s\n' '{"ok":true,"message":"Configuration applied"}'
+	iface="$1"
+	printf '%s\n' "{\"ok\":true,\"message\":\"Configuration applied\",\"data\":{\"interface\":\"$iface\"}}"
 	exit 0
+}
+
+json_header() {
+	echo "Content-Type: application/json"
+	echo ""
+}
+
+get_query_param() {
+	param="$1"
+	value=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			*${param}=*)
+				value="${QUERY_STRING#*${param}=}"
+				value="${value%%&*}"
+				;;
+		esac
+	fi
+	printf '%s' "$value"
+}
+
+list_amneziawg_ifaces() {
+	uci show network 2>/dev/null | sed -n "s/^network\.\([^=]*\)\.proto='amneziawg'$/\1/p" | sort -u
+}
+
+iface_is_amneziawg() {
+	iface="$1"
+	[ -n "$iface" ] || return 1
+	echo "$iface" | grep -qE '^[A-Za-z0-9_]+$' || return 1
+	[ "$(uci -q get "network.${iface}.proto" 2>/dev/null)" = "amneziawg" ]
+}
+
+find_peer_for_iface() {
+	iface="$1"
+	peer="@amneziawg_${iface}[0]"
+	if uci -q get "network.${peer}" >/dev/null 2>&1; then
+		printf '%s' "$peer"
+		return 0
+	fi
+	match=$(uci show network 2>/dev/null | grep "interface='${iface}'" | head -1 | sed -n 's/^network\.\([^=]*\)\.interface=.*/\1/p')
+	if [ -n "$match" ]; then
+		printf '%s' "$match"
+		return 0
+	fi
+	return 1
+}
+
+iface_is_up() {
+	iface="$1"
+	if command -v ifstatus >/dev/null 2>&1; then
+		ifstatus "$iface" 2>/dev/null | grep -q '"up": true'
+		return $?
+	fi
+	ip link show "$iface" 2>/dev/null | grep -qE 'UP|LOWER_UP'
+}
+
+pick_default_iface() {
+	default=""
+	for iface in awg10 AWG; do
+		iface_is_amneziawg "$iface" || continue
+		default="$iface"
+		break
+	done
+	if [ -n "$default" ]; then
+		printf '%s' "$default"
+		return 0
+	fi
+	for iface in $(list_amneziawg_ifaces); do
+		iface_is_up "$iface" || continue
+		printf '%s' "$iface"
+		return 0
+	done
+	list_amneziawg_ifaces | head -1
+}
+
+api_list_interfaces() {
+	json_header
+	first=1
+	default=$(pick_default_iface)
+	printf '%s' '{"ok":true,"interfaces":['
+	for iface in $(list_amneziawg_ifaces); do
+		find_peer_for_iface "$iface" >/dev/null 2>&1 || continue
+		up=0
+		iface_is_up "$iface" && up=1
+		[ "$first" -eq 0 ] && printf ','
+		first=0
+		printf '{"name":"%s","up":%s}' "$iface" "$up"
+	done
+	if [ "$first" -eq 1 ]; then
+		printf '],"default":null}'
+		exit 0
+	fi
+	if [ -n "$default" ]; then
+		printf '],"default":"%s"}' "$default"
+	else
+		printf '],"default":null}'
+	fi
+	exit 0
+}
+
+resolve_import_target() {
+	iface=$(get_query_param iface)
+	if [ -z "$iface" ]; then
+		iface=$(pick_default_iface)
+	fi
+	if ! iface_is_amneziawg "$iface"; then
+		json_err "Интерфейс AmneziaWG не найден: ${iface:-не указан}"
+	fi
+	PEER_SECTION=$(find_peer_for_iface "$iface")
+	if [ -z "$PEER_SECTION" ]; then
+		json_err "Не найдена peer-секция для интерфейса $iface"
+	fi
+	IFACE="$iface"
 }
 
 MAX_NETWORK_BACKUPS=4
@@ -44,16 +155,28 @@ backup_network_config() {
 	cp /etc/config/network "${BACKUP_PREFIX}$(date +%s)" 2>/dev/null
 }
 
-echo "Content-Type: application/json"
-echo ""
-
-if [ "$REQUEST_METHOD" != "POST" ]; then
-	json_err "Method not allowed"
-fi
+case "$REQUEST_METHOD" in
+	GET)
+		if [ "$(get_query_param action)" = "list" ]; then
+			api_list_interfaces
+		fi
+		json_header
+		json_err "Method not allowed"
+		;;
+	POST)
+		json_header
+		;;
+	*)
+		json_header
+		json_err "Method not allowed"
+		;;
+esac
 
 if [ -z "$CONTENT_LENGTH" ] || [ "$CONTENT_LENGTH" -eq 0 ]; then
 	json_err "Пустое тело запроса"
 fi
+
+resolve_import_target
 
 TMPDIR="/tmp/routerich-panel"
 mkdir -p "$TMPDIR"
@@ -252,4 +375,4 @@ if ! ifup "$IFACE" 2>/dev/null; then
 	json_err "Конфиг сохранён, но не удалось поднять интерфейс $IFACE"
 fi
 
-json_ok
+json_ok "$IFACE"

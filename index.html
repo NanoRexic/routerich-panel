@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.0.13">
+  <meta name="routerich-version" content="1.0.14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -54,7 +54,7 @@
         <li>
           <button class="menu-item" id="btn-awg">
             <span class="menu-icon">⚙</span>
-            Обновить конфиг AmneziaWG (awg10)
+            Обновить конфиг AmneziaWG
           </button>
         </li>
         <li id="menu-item-opera-proxy" hidden>
@@ -91,6 +91,13 @@
       </div>
 
       <p class="modal-status" id="modal-status" hidden></p>
+
+      <div class="saved-picker" id="awg-iface-picker" hidden>
+        <label class="saved-picker-label" for="awg-iface-select">Интерфейс AmneziaWG</label>
+        <select id="awg-iface-select" class="saved-select">
+          <option value="">— загрузка... —</option>
+        </select>
+      </div>
 
       <div class="saved-picker" id="saved-picker" hidden>
         <label class="saved-picker-label" for="saved-select">Сохранённые конфиги</label>

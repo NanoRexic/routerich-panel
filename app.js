@@ -10,8 +10,11 @@ const statusArea = document.getElementById('status-area');
 const statusMessage = document.getElementById('status-message');
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
+const awgIfacePicker = document.getElementById('awg-iface-picker');
+const awgIfaceSelect = document.getElementById('awg-iface-select');
 
 let savedVariants = [];
+let awgInterfaces = [];
 
 function showStatus(message, type) {
   statusArea.hidden = false;
@@ -37,6 +40,51 @@ function clearConfigText() {
   configText.value = '';
 }
 
+function populateAwgIfaceSelect(interfaces, selectedName) {
+  awgInterfaces = interfaces || [];
+  awgIfaceSelect.innerHTML = '';
+
+  if (!awgInterfaces.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '— интерфейсы не найдены —';
+    awgIfaceSelect.appendChild(opt);
+    awgIfacePicker.hidden = true;
+    return;
+  }
+
+  awgInterfaces.forEach((item) => {
+    const opt = document.createElement('option');
+    opt.value = item.name;
+    opt.textContent = item.name + (item.up ? ' (поднят)' : ' (выключен)');
+    awgIfaceSelect.appendChild(opt);
+  });
+
+  const preferred = selectedName || awgInterfaces[0].name;
+  const found = awgInterfaces.some((item) => item.name === preferred);
+  awgIfaceSelect.value = found ? preferred : awgInterfaces[0].name;
+  awgIfacePicker.hidden = false;
+}
+
+async function loadAwgInterfaces() {
+  awgIfaceSelect.innerHTML = '<option value="">— загрузка... —</option>';
+  awgIfacePicker.hidden = false;
+
+  try {
+    const data = await apiGet('import-awg?action=list');
+    if (data.ok && data.interfaces && data.interfaces.length) {
+      populateAwgIfaceSelect(data.interfaces, data.default);
+      modalError.hidden = true;
+      return;
+    }
+    populateAwgIfaceSelect([]);
+    showModalError(data.error || 'На роутере нет интерфейсов AmneziaWG. Создайте их в LuCI.');
+  } catch (err) {
+    populateAwgIfaceSelect([]);
+    showModalError('Не удалось загрузить список интерфейсов: ' + err.message);
+  }
+}
+
 function showModal() {
   clearConfigText();
   modalError.hidden = true;
@@ -44,6 +92,7 @@ function showModal() {
   overlay.hidden = false;
   document.body.classList.add('modal-open');
   loadSavedVariants();
+  loadAwgInterfaces();
 }
 
 function hideModal() {
@@ -60,8 +109,13 @@ function isEmptyConfig(text) {
   return !text.trim();
 }
 
-async function apiPost(path, body, contentType) {
-  const res = await fetch('/cgi-bin/' + path, {
+async function apiPost(path, body, contentType, query) {
+  let url = '/cgi-bin/' + path;
+  if (query && typeof query === 'object') {
+    const qs = new URLSearchParams(query).toString();
+    if (qs) url += '?' + qs;
+  }
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': contentType || 'text/plain; charset=utf-8' },
     body: body
@@ -378,6 +432,11 @@ document.getElementById('btn-generate').addEventListener('click', async () => {
 
 document.getElementById('btn-import').addEventListener('click', async () => {
   const text = configText.value.trim();
+  const iface = awgIfaceSelect.value;
+  if (!iface) {
+    showModalError('Выберите интерфейс AmneziaWG');
+    return;
+  }
   if (isEmptyConfig(text)) {
     showModalError('Вставьте, выберите или сгенерируйте конфигурацию .conf');
     return;
@@ -387,10 +446,11 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Импорт...';
   try {
-    const data = await apiPost('import-awg', text);
+    const data = await apiPost('import-awg', text, undefined, { iface: iface });
     if (data.ok) {
+      const appliedIface = (data.data && data.data.interface) || iface;
       hideModal();
-      showStatus('Конфигурация AmneziaWG (awg10) успешно обновлена.', 'success');
+      showStatus('Конфигурация AmneziaWG (' + appliedIface + ') успешно обновлена.', 'success');
     } else {
       showModalError(data.error || 'Ошибка импорта');
     }
