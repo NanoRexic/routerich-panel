@@ -143,6 +143,29 @@ require_zapret_uci() {
 	return 0
 }
 
+api_install_zapret() {
+	fetch_latest_versions 2>/dev/null || true
+
+	if [ -f /etc/init.d/zapret ]; then
+		get_versions
+		if [ -n "$INSTALLED_VER" ] && [ "$INSTALLED_VER" = "$ZAPRET_VERSION" ]; then
+			ensure_zapret_uci_config 2>/dev/null || true
+			api_status | json_ok
+			return
+		fi
+	fi
+
+	zapret_exec install_Zapret 1
+
+	if [ ! -f /etc/init.d/zapret ]; then
+		json_error "Не удалось установить Zapret. Проверьте доступ к GitHub, свободное место и логи opkg/apk."
+		return
+	fi
+
+	ensure_zapret_uci_config 2>/dev/null || true
+	api_status | json_ok
+}
+
 api_status() {
 	uci_init_ran=0
 	uci_ready=0
@@ -151,6 +174,8 @@ api_status() {
 			uci_ready=1
 			[ "$ZAPRET_UCI_INIT_RAN" = "1" ] && uci_init_ran=1
 		fi
+	else
+		fetch_latest_versions 2>/dev/null || true
 	fi
 
 	get_versions
@@ -542,6 +567,7 @@ case "$REQUEST_METHOD" in
 		[ -n "$POST_JSON" ] || { json_error "Пустой запрос"; exit 0; }
 		case "$action" in
 			apply) api_apply ;;
+			install) api_install_zapret ;;
 			test) api_test_run | json_ok ;;
 			prepare-flowseal) api_prepare_flowseal | json_ok ;;
 			*) json_error "Неизвестный POST action" ;;

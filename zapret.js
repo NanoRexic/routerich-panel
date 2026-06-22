@@ -64,6 +64,37 @@ function zapret2StatusParts(z2) {
   return parts;
 }
 
+function setZapretPanelsEnabled(enabled) {
+  const body = document.getElementById('zapret-body');
+  const tabs = document.getElementById('zapret-tabs');
+  if (body) body.classList.toggle('zapret-disabled', !enabled);
+  if (tabs) tabs.classList.toggle('zapret-disabled', !enabled);
+}
+
+function renderInstallBanner(d) {
+  const el = document.getElementById('zapret-install-banner');
+  if (!el) return;
+
+  if (!d || d.installed) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+
+  const latest = d.latest_version ? ' (v' + d.latest_version + ')' : '';
+  const z2warn = d.zapret2 && isZapret2Active(d.zapret2)
+    ? '<p class="zp-zapret2-meta">На роутере активен Zapret2 — перед установкой рекомендуется отключить его кнопкой выше.</p>'
+    : '';
+
+  el.hidden = false;
+  el.className = 'zapret-install-banner warn';
+  el.innerHTML =
+    '<strong>Zapret не установлен</strong>' +
+    '<p>Будут установлены пакеты zapret и LuCI с GitHub (remittor/zapret-openwrt), как в оригинальном Zapret Manager.</p>' +
+    z2warn +
+    '<button type="button" class="btn btn-primary btn-sm" id="zapret-install-btn">Установить Zapret' + latest + '</button>';
+}
+
 function renderZapret2Banner(d) {
   const el = document.getElementById('zapret-zapret2-banner');
   if (!el) return;
@@ -464,8 +495,10 @@ async function refreshZapret(silent) {
       return;
     }
     zapretData = data.data;
+    renderInstallBanner(zapretData);
+    setZapretPanelsEnabled(!!zapretData.installed);
     if (!zapretData.installed) {
-      setZapretError('Zapret не установлен на роутере');
+      setZapretError('');
     } else if (zapretData.uci && zapretData.uci.ready === false) {
       setZapretError('UCI-конфиг Zapret не инициализирован. Перезагрузите роутер или откройте Zapret в LuCI.');
     } else if (zapretData.uci && zapretData.uci.initialized) {
@@ -518,6 +551,59 @@ function zapret2ActionWarning(target) {
   if (target === 'zapret2_disable') return '';
   if (!zapretData || !isZapret2Active(zapretData.zapret2)) return '';
   return 'Zapret2 всё ещё активен. Для стабильной работы обычного Zapret рекомендуется сначала отключить Zapret2.\n\nПродолжить?';
+}
+
+async function zapretInstall() {
+  const res = await fetch('/cgi-bin/zapret-api', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'install' })
+  });
+  return parseZapretResponse(res);
+}
+
+async function runInstallZapret() {
+  if (busy) return;
+  const z2Warn = zapret2ActionWarning('install');
+  if (z2Warn && !confirm(z2Warn)) return;
+  if (!confirm(
+    'Установить Zapret на роутер?\n\n' +
+    '• Обновит список пакетов\n' +
+    '• Скачает архив с GitHub и установит zapret\n' +
+    '• Может занять несколько минут'
+  )) return;
+
+  busy = true;
+  setZapretError('');
+  setZapretStatus('Установка Zapret… Не закрывайте окно, подождите до 3 минут.', 'info');
+  try {
+    const data = await zapretInstall();
+    if (!data.ok) {
+      setZapretError(data.error || 'Не удалось установить Zapret');
+      setZapretStatus('');
+      return;
+    }
+    zapretData = data.data;
+    renderInstallBanner(zapretData);
+    setZapretPanelsEnabled(!!zapretData.installed);
+    renderZapret2Banner(zapretData);
+    renderOverview(zapretData);
+    renderHostsBlocks(zapretData);
+    syncStrategyUI(zapretData);
+    if (zapretData.uci && zapretData.uci.initialized) {
+      setZapretStatus('Zapret установлен — UCI-конфиг инициализирован', 'success');
+    } else {
+      setZapretStatus('Zapret успешно установлен', 'success');
+    }
+    youtubeLoaded = false;
+    loadYoutubeList();
+    setTimeout(() => { if (!busy) setZapretStatus(''); }, 4000);
+  } catch (err) {
+    setZapretError('Ошибка сети: ' + err.message);
+    setZapretStatus('');
+  } finally {
+    busy = false;
+  }
 }
 
 async function runAction(target, value, confirmMsg) {
@@ -602,6 +688,11 @@ document.getElementById('zapret-zapret2-banner').addEventListener('click', (e) =
       '• Отключит автозапуск\n' +
       '• Настройки Enabled в LuCI не изменятся'
     );
+});
+
+document.getElementById('zapret-install-banner').addEventListener('click', (e) => {
+  if (!e.target.closest('#zapret-install-btn')) return;
+  runInstallZapret();
 });
 
 zapretOverlay.addEventListener('click', (e) => {

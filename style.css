@@ -871,6 +871,51 @@ body.modal-open {
   margin-top: 2px;
 }
 
+.zapret-install-banner {
+  margin: 10px 20px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.zapret-install-banner[hidden] {
+  display: none !important;
+}
+
+.zapret-install-banner.warn {
+  background: rgba(77, 161, 192, 0.12);
+  border: 1px solid rgba(77, 161, 192, 0.45);
+  color: #a5d8e8;
+}
+
+.zapret-install-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  color: inherit;
+}
+
+.zapret-install-banner p {
+  margin: 0 0 8px;
+}
+
+.zapret-install-banner .zp-zapret2-meta {
+  margin: 0 0 10px;
+  opacity: 0.9;
+  font-size: 0.8rem;
+}
+
+.zapret-install-banner .btn {
+  margin-top: 2px;
+}
+
+.zapret-tabs.zapret-disabled,
+.zapret-body.zapret-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
 .zapret-body {
   padding: 16px 20px 20px;
   overflow-y: auto;
