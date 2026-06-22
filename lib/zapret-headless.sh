@@ -65,6 +65,25 @@ hosts_enabled() { if grep -q "### dns.malw.link" /etc/hosts; then hosts_echo="Ma
 elif grep -q "45.155.204.190\|instagram.com\|rutor.info\|lib.rus.ec\|ntc.party\|twitch.tv\|web.telegram.org\|www.spotify.com\|store.supercell.com\|raw.githubusercontent.com\|lkfl2.nalog.ru" /etc/hosts; then hosts_echo="добавлены"; return 0; fi; return 1; }
 hosts_add() { printf "%b\n" "$1" | while IFS= read -r L; do grep -qxF "$L" /etc/hosts || echo "$L" >> /etc/hosts; done; /etc/init.d/dnsmasq restart >/dev/null 2>&1; }
 ZAPRET_RESTART () { chmod +x /opt/zapret/sync_config.sh; /opt/zapret/sync_config.sh; /etc/init.d/zapret restart >/dev/null 2>&1; sleep 1; }
+ZAPRET_UCI_INIT_RAN=0
+zapret_uci_config_ready() {
+	command -v uci >/dev/null 2>&1 || return 1
+	cfg_sec=$(uci -q get zapret.config 2>/dev/null)
+	[ -n "$cfg_sec" ] || return 1
+	[ -f "$CONF" ] || return 1
+	grep -q 'option NFQWS_OPT' "$CONF" 2>/dev/null || return 1
+	return 0
+}
+ensure_zapret_uci_config() {
+	ZAPRET_UCI_INIT_RAN=0
+	[ -f /etc/init.d/zapret ] || return 1
+	zapret_uci_config_ready && return 0
+	[ -f /opt/zapret/renew-cfg.sh ] || return 1
+	chmod +x /opt/zapret/renew-cfg.sh 2>/dev/null || true
+	/opt/zapret/renew-cfg.sh >/dev/null 2>&1 || return 1
+	ZAPRET_UCI_INIT_RAN=1
+	zapret_uci_config_ready
+}
 PAUSE() { [ -z "$ZAPRET_HEADLESS" ] && { echo -ne "Нажмите Enter..."; read dummy; }; }; BACKUP_DIR="/opt/zapret_backup"; DATE_FILE="$BACKUP_DIR/date_backup.txt"
 BIN_PATH_GO="/usr/bin/tg-ws-proxy-go"; INIT_PATH_GO="/etc/init.d/tg-ws-proxy-go"; BIN_PATH_RS="/usr/bin/tg-ws-proxy-rs"; INIT_PATH_RS="/etc/init.d/tg-ws-proxy-rs"
 if command -v opkg >/dev/null 2>&1; then PKG="opkg"; GO_SUF="1"; CONFZ="/etc/opkg/distfeeds.conf"; PKG_IS_APK=0; UPDATE="opkg update"; INSTALL="opkg install"

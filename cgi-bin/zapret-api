@@ -131,7 +131,28 @@ disable_zapret2_api() {
 	return 0
 }
 
+require_zapret_uci() {
+	[ -f /etc/init.d/zapret ] || {
+		json_error "Zapret не установлен"
+		return 1
+	}
+	ensure_zapret_uci_config || {
+		json_error "Не удалось инициализировать UCI-конфиг Zapret (/etc/config/zapret)"
+		return 1
+	}
+	return 0
+}
+
 api_status() {
+	uci_init_ran=0
+	uci_ready=0
+	if [ -f /etc/init.d/zapret ]; then
+		if ensure_zapret_uci_config; then
+			uci_ready=1
+			[ "$ZAPRET_UCI_INIT_RAN" = "1" ] && uci_init_ran=1
+		fi
+	fi
+
 	get_versions
 	get_doh_status
 	show_current_strategy
@@ -206,10 +227,13 @@ api_status() {
 		--argjson test_all "$([ -s "$RES3" ] && echo 1 || echo 0)" \
 		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
 		--argjson zapret2 "$zapret2_json" \
+		--argjson uci_initialized "$uci_init_ran" \
+		--argjson uci_ready "$uci_ready" \
 		'{
 			manager_version: $manager_version,
 			installed: ($installed == 1),
 			running: ($running == 1),
+			uci: {initialized: ($uci_initialized == 1), ready: ($uci_ready == 1)},
 			version: $version,
 			latest_version: $latest,
 			nfq: {running: ($nfq_run | tonumber), total: ($nfq_all | tonumber)},
@@ -286,17 +310,17 @@ api_test_strategy_list() {
 }
 
 api_prepare_flowseal() {
-	[ -f /etc/init.d/zapret ] || { json_error "Zapret не установлен"; return; }
+	require_zapret_uci || return
 	prepare_flowseal_strategies_api || { json_error "Не удалось скачать стратегии Flowseal. Проверьте доступ к GitHub."; return; }
 }
 
 api_test_run() {
+	require_zapret_uci || return
+
 	mode=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
 	domains=$(printf '%s' "$POST_JSON" | jq -r '.domains // empty')
 	strategy_type=$(printf '%s' "$POST_JSON" | jq -r '.type // empty')
 	strategy_name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
-
-	[ -f /etc/init.d/zapret ] || { json_error "Zapret не установлен"; return; }
 
 	case "$mode" in
 		current)
@@ -337,6 +361,8 @@ api_youtube_list() {
 }
 
 api_apply() {
+	require_zapret_uci || return
+
 	target=$(printf '%s' "$POST_JSON" | jq -r '.target // empty')
 	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
 

@@ -466,13 +466,20 @@ async function refreshZapret(silent) {
     zapretData = data.data;
     if (!zapretData.installed) {
       setZapretError('Zapret не установлен на роутере');
+    } else if (zapretData.uci && zapretData.uci.ready === false) {
+      setZapretError('UCI-конфиг Zapret не инициализирован. Перезагрузите роутер или откройте Zapret в LuCI.');
+    } else if (zapretData.uci && zapretData.uci.initialized) {
+      setZapretStatus('UCI-конфиг Zapret инициализирован — стратегии доступны', 'info');
     }
     renderZapret2Banner(zapretData);
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
-    if (!silent) setZapretStatus('Обновлено', 'success');
-    setTimeout(() => { if (!busy) setZapretStatus(''); }, 1500);
+    if (!silent && !(zapretData.uci && zapretData.uci.initialized)) {
+      setZapretStatus('Обновлено', 'success');
+    }
+    const statusDelay = (zapretData.uci && zapretData.uci.initialized) ? 4000 : 1500;
+    setTimeout(() => { if (!busy) setZapretStatus(''); }, statusDelay);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
