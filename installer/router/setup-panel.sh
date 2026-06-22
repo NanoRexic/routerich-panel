@@ -9,15 +9,34 @@ CHOSEN_PORT=""
 
 log() { printf '[setup] %s\n' "$1" >&2; }
 
-pick_port() {
+port_listening() {
 	port="$1"
 	if command -v ss >/dev/null 2>&1; then
-		ss -tuln 2>/dev/null | grep -q ":${port} " && return 1
+		ss -tuln 2>/dev/null | grep -q ":${port} " && return 0
 	fi
 	if command -v netstat >/dev/null 2>&1; then
-		netstat -tuln 2>/dev/null | grep -q ":${port} " && return 1
+		netstat -tuln 2>/dev/null | grep -q ":${port} " && return 0
 	fi
-	return 0
+	return 1
+}
+
+panel_owns_port() {
+	port="$1"
+	home=$(uci -q get uhttpd.panel.home 2>/dev/null)
+	[ "$home" = "$PANEL_HOME" ] || return 1
+	uci -q show uhttpd.panel 2>/dev/null | grep -qE "listen_http='[^']*:${port}'"
+}
+
+pick_port() {
+	port="$1"
+	if ! port_listening "$port"; then
+		return 0
+	fi
+	if panel_owns_port "$port"; then
+		log "Порт $port уже занят панелью — переиспользуем"
+		return 0
+	fi
+	return 1
 }
 
 select_port() {
