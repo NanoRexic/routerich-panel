@@ -168,7 +168,7 @@ api_install_zapret() {
 
 	if [ "$fresh_install" -eq 1 ]; then
 		zapret_exec configure_zapret_defaults 1 || {
-			json_error "Zapret установлен, но не удалось применить стратегию $STR_VERSION_AUTOINSTALL и список исключений"
+			json_error "Zapret установлен, но не удалось применить стандартные настройки Zapret-Manager"
 			return
 		}
 	fi

@@ -116,10 +116,47 @@ unzip -o "$FILE_NAME" >/dev/null; if [ "$PKG_IS_APK" -eq 1 ]; then PKG_PATH="$TM
 for PKG in "$PKG_PATH"/luci*; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done; else PKG_PATH="$TMP_SF"; for PKG in "$PKG_PATH"/zapret_*.ipk; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done
 for PKG in "$PKG_PATH"/luci-app-zapret_*.ipk; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done; fi; echo -e "${CYAN}Удаляем временные файлы${NC}"; cd /
 rm -rf "$TMP_SF" /tmp/*.ipk /tmp/*.zip /tmp/*zapret* 2>/dev/null; echo -e "Zapret ${GREEN}установлен!${NC}\n"; _headless_finish "$NO_PAUSE"; }
+ZAPRET_MANAGER_UPSTREAM_URL="https://github.com/StressOzz/Zapret-Manager/raw/refs/heads/main/Zapret-Manager.sh"
+ZAPRET_MANAGER_UPSTREAM_CACHE="$TMP_SF/zapret_manager_upstream.sh"
+fetch_upstream_zapret_manager() {
+	mkdir -p "$TMP_SF"
+	local url="${ZAPRET_MANAGER_UPSTREAM_URL}?t=$(date +%s 2>/dev/null || echo 1)"
+	wget -q -U "Mozilla/5.0" --no-cache -O "$ZAPRET_MANAGER_UPSTREAM_CACHE" "$url" 2>/dev/null && return 0
+	curl -fsSL -A "Mozilla/5.0" -H 'Cache-Control: no-cache' -o "$ZAPRET_MANAGER_UPSTREAM_CACHE" "$url" 2>/dev/null && return 0
+	return 1
+}
+upstream_load_defaults_vars() {
+	local cache="$1" frag="$TMP_SF/upstream_defs.$$"
+	[ -s "$cache" ] || return 1
+	grep -q 'STR_VERSION_AUTOINSTALL=' "$cache" || return 1
+	awk '/^hosts_enabled\(\)/{exit} {print}' "$cache" > "$frag" || return 1
+	# shellcheck disable=SC1090
+	. "$frag" 2>/dev/null || { rm -f "$frag"; return 1; }
+	rm -f "$frag"
+	[ -n "$STR_VERSION_AUTOINSTALL" ] && [ -n "$EXCLUDE_URL" ] && [ -n "$ALL_BLOCKS" ]
+}
+apply_zapret_key_defaults() {
+	local NO_PAUSE="${1:-1}"
+	install_strategy "$STR_VERSION_AUTOINSTALL" "$NO_PAUSE" || return 1
+	echo -e "${CYAN}Добавляем домены в${NC} hosts"
+	hosts_add "$ALL_BLOCKS"
+	install_discord_script "50-stun4all" || echo -e "${YELLOW}Discord-скрипт 50-stun4all не установлен${NC}" >&2
+	fix_GAME "1" || echo -e "${YELLOW}Игровая стратегия Gv1 не установлена${NC}" >&2
+	return 0
+}
 configure_zapret_defaults() {
 	local NO_PAUSE="${1:-1}"
+	local fb_str="$STR_VERSION_AUTOINSTALL" fb_excl="$EXCLUDE_URL" fb_blocks="$ALL_BLOCKS"
 	ensure_zapret_uci_config || return 1
-	install_strategy "$STR_VERSION_AUTOINSTALL" "$NO_PAUSE"
+	if fetch_upstream_zapret_manager && upstream_load_defaults_vars "$ZAPRET_MANAGER_UPSTREAM_CACHE"; then
+		echo -e "${CYAN}Стандартные настройки из Zapret-Manager:${NC} ${STR_VERSION_AUTOINSTALL}" >&2
+	else
+		STR_VERSION_AUTOINSTALL="$fb_str"
+		EXCLUDE_URL="$fb_excl"
+		ALL_BLOCKS="$fb_blocks"
+		echo -e "${YELLOW}Zapret-Manager недоступен — встроенные настройки (${STR_VERSION_AUTOINSTALL})${NC}" >&2
+	fi
+	apply_zapret_key_defaults "$NO_PAUSE"
 }
 # ==========================================
 # Меню настройки Discord
