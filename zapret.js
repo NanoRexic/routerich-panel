@@ -242,6 +242,7 @@ function renderPanelTestDetail(data) {
   if (!data || typeof data.ok !== 'number') {
     el.hidden = true;
     el.innerHTML = '';
+    updatePanelTestHint();
     return;
   }
   const cls = data.status || scoreClass(data.ok, data.total);
@@ -266,8 +267,29 @@ function renderPanelTestDetail(data) {
           '<span class="zp-test-item-state">' + (ok ? 'OK' : 'FAIL') + '</span>' +
           '</div>';
       }).join('') +
-    '</div>' +
-    '<button type="button" class="btn btn-outline btn-sm" id="zapret-panel-test-detail-close">Скрыть</button>';
+    '</div>';
+  updatePanelTestHint();
+}
+
+function updatePanelTestHint() {
+  const hint = document.getElementById('zapret-panel-test-hint');
+  if (hint) hint.hidden = !selectedPanelTestId;
+}
+
+function hidePanelTestDetail() {
+  selectedPanelTestId = '';
+  renderPanelTestDetail(null);
+  updatePanelTestHint();
+  document.querySelectorAll('.zp-panel-test-row.active').forEach((row) => row.classList.remove('active'));
+}
+
+async function togglePanelTestDetail(id) {
+  if (!id) return;
+  if (id === selectedPanelTestId) {
+    hidePanelTestDetail();
+    return;
+  }
+  await showPanelTestDetail(id);
 }
 
 function scoreClass(ok, total) {
@@ -932,15 +954,7 @@ document.getElementById('zapret-test-strategy').addEventListener('click', () => 
 document.getElementById('zapret-panel-test-history').addEventListener('click', (e) => {
   const row = e.target.closest('[data-panel-test-id]');
   if (!row) return;
-  showPanelTestDetail(row.dataset.panelTestId);
-});
-
-document.getElementById('zapret-panel-test-detail').addEventListener('click', (e) => {
-  if (!e.target.closest('#zapret-panel-test-detail-close')) return;
-  selectedPanelTestId = '';
-  renderPanelTestDetail(null);
-  panelTestHistoryLoaded = false;
-  loadPanelTestHistory(true);
+  togglePanelTestDetail(row.dataset.panelTestId);
 });
 
 document.getElementById('zapret-panel-test-refresh').addEventListener('click', () => {

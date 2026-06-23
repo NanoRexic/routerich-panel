@@ -1240,6 +1240,13 @@ body.modal-open {
 .zp-test-saved-score.partial { color: #fbbf24; }
 .zp-test-saved-score.bad { color: var(--danger); }
 
+.zp-panel-test-hint {
+  margin: -0.15rem 0 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.55;
+}
+
 .zp-panel-test-history {
   display: flex;
   flex-direction: column;
