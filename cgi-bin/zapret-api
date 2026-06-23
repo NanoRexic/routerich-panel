@@ -261,6 +261,7 @@ api_status() {
 		--argjson test_flowseal "$([ -s "$RES1" ] && echo 1 || echo 0)" \
 		--argjson test_all "$([ -s "$RES3" ] && echo 1 || echo 0)" \
 		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
+		--argjson panel_tests "$([ -d "$PANEL_TEST_DIR" ] && ls "$PANEL_TEST_DIR"/panel_test_*.json >/dev/null 2>&1 && echo 1 || echo 0)" \
 		--argjson zapret2 "$zapret2_json" \
 		--argjson uci_initialized "$uci_init_ran" \
 		--argjson uci_ready "$uci_ready" \
@@ -291,7 +292,7 @@ api_status() {
 			backup: {exists: ($backup == 1), date: $backup_date},
 			test_history: {
 				versions: ($test_versions == 1), flowseal: ($test_flowseal == 1),
-				all: ($test_all == 1), domain: ($test_domain == 1)
+				all: ($test_all == 1), domain: ($test_domain == 1), panel: ($panel_tests == 1)
 			},
 			zapret2: $zapret2
 		}'
@@ -378,8 +379,22 @@ api_test_run() {
 			api_test_results
 			return
 			;;
+		clear-panel)
+			clear_panel_test_history_api
+			list_panel_tests_api
+			return
+			;;
+		clear-all)
+			clear_test_results_api
+			clear_panel_test_history_api
+			jq -n \
+				--argjson bulk "$(api_test_results)" \
+				--argjson panel "$(list_panel_tests_api)" \
+				'{bulk: $bulk, panel: $panel}'
+			return
+			;;
 		*)
-			json_error "test: current|domain|strategy|clear"; return ;;
+			json_error "test: current|domain|strategy|clear|clear-panel|clear-all"; return ;;
 	esac
 }
 
@@ -569,6 +584,16 @@ case "$REQUEST_METHOD" in
 			status|"") api_status | json_ok ;;
 			youtube-list) api_youtube_list | json_ok ;;
 			test-results) api_test_results | json_ok ;;
+			test-history) list_panel_tests_api | json_ok ;;
+			test-history-detail)
+				test_id=$(get_query_param "id" "")
+				[ -n "$test_id" ] || { json_error "Укажите id теста"; exit 0; }
+				if detail=$(get_panel_test_detail_api "$test_id" 2>/dev/null); then
+					printf '%s' "$detail" | json_ok
+				else
+					json_error "Тест не найден"
+				fi
+				;;
 			test-strategies) api_test_strategy_list | json_ok ;;
 			*) json_error "Неизвестный GET action" ;;
 		esac

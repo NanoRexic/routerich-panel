@@ -18,7 +18,7 @@ RESULTS="/opt/zapret/tmp/zapret_bench.txt"; BACK="$TMP_SF/zapret_back.txt"; TMP_
 FINAL_STR="$TMP_SF/StrFINAL.txt"; NEW_STR="$TMP_SF/StrNEW.txt"; OLD_STR="$TMP_SF/StrOLD.txt"; SECRET_FILE="/etc/tg-ws-proxy/secret.conf"
 ARCH_FULL="$(cat /etc/openwrt_release | grep DISTRIB_ARCH | cut -d"'" -f2)"; MODEL="$(cat /tmp/sysinfo/model 2>/dev/null)"
 RES1="/opt/zapret/tmp/results_flowseal.txt"; RES2="/opt/zapret/tmp/results_versions.txt"; RES3="/opt/zapret/tmp/results_all.txt"
-RES_DOMAIN="/opt/zapret/tmp/results_domain.txt"; Fin_IP_Dis="104\.25\.158\.178 finland[0-9]\{5\}\.discord\.media"; PARALLEL=8
+RES_DOMAIN="/opt/zapret/tmp/results_domain.txt"; PANEL_TEST_DIR="/opt/zapret/tmp/panel_tests"; Fin_IP_Dis="104\.25\.158\.178 finland[0-9]\{5\}\.discord\.media"; PARALLEL=8
 RAW="https://raw.githubusercontent.com/hyperion-cs/dpi-checkers/refs/heads/main/ru/tcp-16-20/suite.v2.json"
 EXCLUDE_FILE="/opt/zapret/ipset/zapret-hosts-user-exclude.txt"; fileDoH="/etc/config/https-dns-proxy"
 RKN_URL="https://raw.githubusercontent.com/IndeecFOX/zapret4rocket/refs/heads/master/extra_strats/TCP/RKN/List.txt"
@@ -269,8 +269,16 @@ build_domain_test_json() {
 		| map(select(length >= 2))
 		| map({name: .[1], ok: (.[0] == "OK")})
 	' "$LOG_TMP")
+	SAVED_ID=""
+	SAVED_AT=""
+	if [ -n "$TEST_PANEL_MODE" ]; then
+		SAVED_ID="$(date '+%Y%m%d_%H%M%S')_$$"
+		SAVED_AT="$(date '+%d.%m.%Y %H:%M')"
+	fi
+	PANEL_MODE="${TEST_PANEL_MODE:-}"
+	PANEL_DOMAINS_INPUT="${TEST_DOMAINS_INPUT:-}"
 	if [ -n "$TEST_STRATEGY_NAME" ]; then
-		jq -n \
+		JSON=$(jq -n \
 			--argjson ok "$OK" \
 			--argjson total "$TOTAL" \
 			--arg status "$STATUS" \
@@ -278,16 +286,72 @@ build_domain_test_json() {
 			--arg strategy "$TEST_STRATEGY_NAME" \
 			--arg strategy_type "$TEST_STRATEGY_TYPE" \
 			--argjson restored true \
-			'{ok: $ok, total: $total, status: $status, domains: $domains, strategy: $strategy, strategy_type: $strategy_type, restored: $restored}'
+			--arg saved_id "$SAVED_ID" \
+			--arg saved_at "$SAVED_AT" \
+			--arg mode "$PANEL_MODE" \
+			--arg domains_input "$PANEL_DOMAINS_INPUT" \
+			'{ok: $ok, total: $total, status: $status, domains: $domains, strategy: $strategy, strategy_type: $strategy_type, restored: $restored, saved_id: (if $saved_id == "" then null else $saved_id end), saved_at: (if $saved_at == "" then null else $saved_at end), date: (if $saved_at == "" then null else $saved_at end), mode: (if $mode == "" then null else $mode end), domains_input: (if $domains_input == "" then null else $domains_input end)}')
 		unset TEST_STRATEGY_NAME TEST_STRATEGY_TYPE
-		return
+	else
+		JSON=$(jq -n \
+			--argjson ok "$OK" \
+			--argjson total "$TOTAL" \
+			--arg status "$STATUS" \
+			--argjson domains "$DOMAINS_JSON" \
+			--arg saved_id "$SAVED_ID" \
+			--arg saved_at "$SAVED_AT" \
+			--arg mode "$PANEL_MODE" \
+			--arg domains_input "$PANEL_DOMAINS_INPUT" \
+			'{ok: $ok, total: $total, status: $status, domains: $domains, saved_id: (if $saved_id == "" then null else $saved_id end), saved_at: (if $saved_at == "" then null else $saved_at end), date: (if $saved_at == "" then null else $saved_at end), mode: (if $mode == "" then null else $mode end), domains_input: (if $domains_input == "" then null else $domains_input end)}')
 	fi
-	jq -n \
-		--argjson ok "$OK" \
-		--argjson total "$TOTAL" \
-		--arg status "$STATUS" \
-		--argjson domains "$DOMAINS_JSON" \
-		'{ok: $ok, total: $total, status: $status, domains: $domains}'
+	if [ -n "$SAVED_ID" ]; then
+		mkdir -p "$PANEL_TEST_DIR"
+		printf '%s\n' "$JSON" | jq \
+			--arg id "$SAVED_ID" \
+			'. + {id: $id}' > "$PANEL_TEST_DIR/panel_test_${SAVED_ID}.json"
+		unset TEST_PANEL_MODE TEST_DOMAINS_INPUT
+	fi
+	printf '%s\n' "$JSON"
+}
+
+list_panel_tests_api() {
+	mkdir -p "$PANEL_TEST_DIR"
+	if ! ls "$PANEL_TEST_DIR"/panel_test_*.json >/dev/null 2>&1; then
+		jq -n '{items: []}'
+		return 0
+	fi
+	jq -s '
+		map({
+			id: .id,
+			date: .date,
+			mode: .mode,
+			strategy: .strategy,
+			strategy_type: .strategy_type,
+			domains_input: .domains_input,
+			ok: .ok,
+			total: .total,
+			status: .status
+		})
+		| sort_by(.id)
+		| reverse
+		| {items: .}
+	' "$PANEL_TEST_DIR"/panel_test_*.json
+}
+
+get_panel_test_detail_api() {
+	ID="$1"
+	case "$ID" in
+		[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]_*) ;;
+		*) return 1 ;;
+	esac
+	FILE="$PANEL_TEST_DIR/panel_test_${ID}.json"
+	[ -f "$FILE" ] || return 1
+	cat "$FILE"
+}
+
+clear_panel_test_history_api() {
+	rm -f "$PANEL_TEST_DIR"/panel_test_*.json 2>/dev/null
+	return 0
 }
 
 _apply_strategy_block_to_conf() {
@@ -402,6 +466,7 @@ test_single_strategy_api() {
 	TYPE="$1"
 	NAME="$2"
 	[ -n "$TYPE" ] && [ -n "$NAME" ] || return 1
+	TEST_PANEL_MODE="strategy"
 
 	mkdir -p "$TMP_SF"
 	cp "$CONF" "$BACK"
@@ -449,6 +514,7 @@ test_single_strategy_api() {
 }
 
 test_current_strategy_api() {
+	TEST_PANEL_MODE="current"
 	mkdir -p "$TMP_SF"
 	prepare_urls || return 1
 	URLS=$(cat "$OUT_DPI")
@@ -463,6 +529,8 @@ test_domains_api() {
 	INPUT="$1"
 	INPUT=$(printf "%s" "$INPUT" | tr -s ' ')
 	[ -n "$INPUT" ] || return 1
+	TEST_PANEL_MODE="domain"
+	TEST_DOMAINS_INPUT="$INPUT"
 	mkdir -p "$TMP_SF"
 	URLS=""
 	COUNT=0

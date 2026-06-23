@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.0.21">
+  <meta name="routerich-version" content="1.0.22">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -313,8 +313,18 @@
           <div id="zapret-test-summary" class="zp-test-summary" hidden></div>
           <div id="zapret-test-domains-list" class="zp-test-list"></div>
           <div class="zp-section">
-            <h3>Сохранённые результаты</h3>
-            <p class="zp-muted">Результаты полного теста стратегий (v / Flowseal), если они были запущены на роутере.</p>
+            <h3>История тестов панели</h3>
+            <p class="zp-muted">Сохранённые результаты тестов из этой панели — с датой. Нажмите на запись, чтобы посмотреть детали.</p>
+            <div id="zapret-panel-test-history" class="zp-panel-test-history"></div>
+            <div id="zapret-panel-test-detail" class="zp-panel-test-detail" hidden></div>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-outline btn-sm" id="zapret-panel-test-refresh">Обновить</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" id="zapret-panel-test-clear">Очистить историю</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Массовые тесты Zapret-Manager</h3>
+            <p class="zp-muted">Сводка полного теста стратегий (v / Flowseal), если он был запущен через оригинальный Zapret-Manager на роутере.</p>
             <div id="zapret-test-saved" class="zp-test-saved"></div>
             <div class="zp-actions">
               <button type="button" class="btn btn-outline btn-sm" id="zapret-test-refresh-saved">Обновить</button>

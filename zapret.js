@@ -11,6 +11,8 @@ const discordSelect = document.getElementById('zapret-discord-select');
 let zapretData = null;
 let youtubeLoaded = false;
 let testResultsLoaded = false;
+let panelTestHistoryLoaded = false;
+let selectedPanelTestId = '';
 let testStrategiesType = '';
 let busy = false;
 let showZapret2DisabledBanner = false;
@@ -20,6 +22,12 @@ const TEST_TYPE_LABELS = {
   flowseal: 'Flowseal',
   all: 'v + Flowseal',
   domain: 'По домену'
+};
+
+const PANEL_TEST_MODE_LABELS = {
+  current: 'Текущая конфигурация',
+  domain: 'По доменам',
+  strategy: 'Стратегия'
 };
 
 function setZapretError(msg) {
@@ -186,12 +194,80 @@ function renderOverview(d) {
 function renderTestHistory(history) {
   if (!history) return '';
   const parts = [];
+  if (history.panel) parts.push('панель');
   if (history.versions) parts.push('v');
   if (history.flowseal) parts.push('Flowseal');
   if (history.all) parts.push('all');
   if (history.domain) parts.push('domain');
   if (!parts.length) return '';
   return '<p class="zp-muted">Сохранённые тесты: ' + parts.join(', ') + '</p>';
+}
+
+function panelTestTitle(item) {
+  if (!item) return '—';
+  if (item.mode === 'strategy') {
+    const typeLabel = TEST_TYPE_LABELS[item.strategy_type] || item.strategy_type || '';
+    return (typeLabel ? typeLabel + ': ' : '') + (item.strategy || '—');
+  }
+  if (item.mode === 'domain') {
+    return 'Домены: ' + (item.domains_input || '—');
+  }
+  return PANEL_TEST_MODE_LABELS[item.mode] || item.mode || '—';
+}
+
+function renderPanelTestHistory(data) {
+  const el = document.getElementById('zapret-panel-test-history');
+  if (!el) return;
+  const items = data && Array.isArray(data.items) ? data.items : [];
+  if (!items.length) {
+    el.innerHTML = '<p class="zp-muted">История пуста — запустите тест выше</p>';
+    return;
+  }
+  el.innerHTML = items.map((item) => {
+    const cls = scoreClass(item.ok, item.total);
+    const active = item.id === selectedPanelTestId ? ' active' : '';
+    const modeLabel = PANEL_TEST_MODE_LABELS[item.mode] || item.mode || '';
+    return '<button type="button" class="zp-panel-test-row' + active + '" data-panel-test-id="' + item.id + '">' +
+      '<span class="zp-panel-test-date">' + (item.date || '—') + '</span>' +
+      '<span class="zp-panel-test-title">' + panelTestTitle(item) + '</span>' +
+      '<span class="zp-panel-test-mode">' + modeLabel + '</span>' +
+      '<span class="zp-panel-test-score ' + cls + '">' + item.ok + '/' + item.total + '</span>' +
+      '</button>';
+  }).join('');
+}
+
+function renderPanelTestDetail(data) {
+  const el = document.getElementById('zapret-panel-test-detail');
+  if (!el) return;
+  if (!data || typeof data.ok !== 'number') {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const cls = data.status || scoreClass(data.ok, data.total);
+  const title = panelTestTitle(data);
+  const meta = [];
+  if (data.date) meta.push(data.date);
+  if (data.mode) meta.push(PANEL_TEST_MODE_LABELS[data.mode] || data.mode);
+  if (data.restored) meta.push('конфиг восстановлен');
+  const domains = Array.isArray(data.domains) ? data.domains : [];
+  el.hidden = false;
+  el.innerHTML =
+    '<div class="zp-panel-test-detail-head">' +
+      '<strong>' + title + '</strong>' +
+      '<span class="zp-panel-test-score ' + cls + '">' + data.ok + '/' + data.total + '</span>' +
+    '</div>' +
+    (meta.length ? '<p class="zp-muted zp-panel-test-detail-meta">' + meta.join(' · ') + '</p>' : '') +
+    '<div class="zp-test-list">' +
+      domains.map((item) => {
+        const ok = !!item.ok;
+        return '<div class="zp-test-item ' + (ok ? 'ok' : 'fail') + '">' +
+          '<span>' + item.name + '</span>' +
+          '<span class="zp-test-item-state">' + (ok ? 'OK' : 'FAIL') + '</span>' +
+          '</div>';
+      }).join('') +
+    '</div>' +
+    '<button type="button" class="btn btn-outline btn-sm" id="zapret-panel-test-detail-close">Скрыть</button>';
 }
 
 function scoreClass(ok, total) {
@@ -439,6 +515,54 @@ async function loadSavedTestResults(force) {
   }
 }
 
+async function loadPanelTestHistory(force) {
+  if (panelTestHistoryLoaded && !force) return;
+  const el = document.getElementById('zapret-panel-test-history');
+  if (el) el.innerHTML = '<p class="zp-muted">Загрузка…</p>';
+  try {
+    const data = await zapretGet('test-history');
+    if (!data.ok) {
+      if (el) el.innerHTML = '<p class="zp-muted">Не удалось загрузить историю</p>';
+      return;
+    }
+    renderPanelTestHistory(data.data);
+    panelTestHistoryLoaded = true;
+    if (selectedPanelTestId) {
+      const found = (data.data.items || []).some((item) => item.id === selectedPanelTestId);
+      if (!found) {
+        selectedPanelTestId = '';
+        renderPanelTestDetail(null);
+      }
+    }
+  } catch (_) {
+    if (el) el.innerHTML = '<p class="zp-muted">Ошибка загрузки истории</p>';
+  }
+}
+
+async function showPanelTestDetail(id) {
+  if (!id) return;
+  selectedPanelTestId = id;
+  panelTestHistoryLoaded = false;
+  await loadPanelTestHistory(true);
+  const detailEl = document.getElementById('zapret-panel-test-detail');
+  if (detailEl) {
+    detailEl.hidden = false;
+    detailEl.innerHTML = '<p class="zp-muted">Загрузка деталей…</p>';
+  }
+  try {
+    const data = await zapretGet('test-history-detail', { id: id });
+    if (!data.ok) {
+      setZapretError(data.error || 'Не удалось загрузить тест');
+      renderPanelTestDetail(null);
+      return;
+    }
+    renderPanelTestDetail(data.data);
+  } catch (err) {
+    setZapretError('Ошибка сети: ' + err.message);
+    renderPanelTestDetail(null);
+  }
+}
+
 function youtubeListNeedsLoad() {
   if (!youtubeSelect) return false;
   if (!youtubeLoaded) return true;
@@ -536,7 +660,16 @@ async function runTest(mode, options) {
       return;
     }
     renderTestResult(data.data);
-    setZapretStatus('Тест завершён', 'success');
+    if (data.data && data.data.saved_id) {
+      selectedPanelTestId = data.data.saved_id;
+      panelTestHistoryLoaded = false;
+      await loadPanelTestHistory(true);
+      renderPanelTestDetail(data.data);
+    } else {
+      panelTestHistoryLoaded = false;
+      loadPanelTestHistory(true);
+    }
+    setZapretStatus('Тест завершён и сохранён в историю', 'success');
     setTimeout(() => setZapretStatus(''), 2500);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
@@ -649,10 +782,13 @@ function showZapretModal() {
   setZapretStatus('');
   youtubeLoaded = false;
   testResultsLoaded = false;
+  panelTestHistoryLoaded = false;
+  selectedPanelTestId = '';
   testStrategiesType = '';
   refreshZapret();
   loadYoutubeList();
   loadSavedTestResults();
+  loadPanelTestHistory();
   loadTestStrategies();
 }
 
@@ -670,6 +806,7 @@ function switchTab(tabId) {
   }
   if (tabId === 'test') {
     loadSavedTestResults();
+    loadPanelTestHistory();
     loadTestStrategies();
   }
 }
@@ -792,6 +929,56 @@ document.getElementById('zapret-test-strategy').addEventListener('click', () => 
   runTest('strategy', { type: type, name: name });
 });
 
+document.getElementById('zapret-panel-test-history').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-panel-test-id]');
+  if (!row) return;
+  showPanelTestDetail(row.dataset.panelTestId);
+});
+
+document.getElementById('zapret-panel-test-detail').addEventListener('click', (e) => {
+  if (!e.target.closest('#zapret-panel-test-detail-close')) return;
+  selectedPanelTestId = '';
+  renderPanelTestDetail(null);
+  panelTestHistoryLoaded = false;
+  loadPanelTestHistory(true);
+});
+
+document.getElementById('zapret-panel-test-refresh').addEventListener('click', () => {
+  panelTestHistoryLoaded = false;
+  loadPanelTestHistory(true);
+});
+
+document.getElementById('zapret-panel-test-clear').addEventListener('click', async () => {
+  if (busy) return;
+  if (!confirm('Очистить историю тестов панели на роутере?')) return;
+  busy = true;
+  setZapretError('');
+  setZapretStatus('Удаление…', 'info');
+  try {
+    const data = await zapretTest('clear-panel');
+    if (!data.ok) {
+      setZapretError(data.error || 'Ошибка удаления');
+      setZapretStatus('');
+      return;
+    }
+    selectedPanelTestId = '';
+    renderPanelTestDetail(null);
+    renderPanelTestHistory(data.data);
+    panelTestHistoryLoaded = true;
+    if (zapretData && zapretData.test_history) {
+      zapretData.test_history.panel = false;
+      renderOverview(zapretData);
+    }
+    setZapretStatus('История очищена', 'success');
+    setTimeout(() => setZapretStatus(''), 2000);
+  } catch (err) {
+    setZapretError('Ошибка сети: ' + err.message);
+    setZapretStatus('');
+  } finally {
+    busy = false;
+  }
+});
+
 document.getElementById('zapret-test-refresh-saved').addEventListener('click', () => {
   testResultsLoaded = false;
   loadSavedTestResults(true);
@@ -799,7 +986,7 @@ document.getElementById('zapret-test-refresh-saved').addEventListener('click', (
 
 document.getElementById('zapret-test-clear').addEventListener('click', async () => {
   if (busy) return;
-  if (!confirm('Удалить все сохранённые результаты тестирования на роутере?')) return;
+  if (!confirm('Удалить результаты массовых тестов Zapret-Manager на роутере?')) return;
   busy = true;
   setZapretError('');
   setZapretStatus('Удаление…', 'info');
@@ -812,7 +999,12 @@ document.getElementById('zapret-test-clear').addEventListener('click', async () 
     }
     renderSavedTestResults(data.data);
     if (zapretData) {
-      zapretData.test_history = { versions: false, flowseal: false, all: false, domain: false };
+      if (zapretData.test_history) {
+        zapretData.test_history.versions = false;
+        zapretData.test_history.flowseal = false;
+        zapretData.test_history.all = false;
+        zapretData.test_history.domain = false;
+      }
       renderOverview(zapretData);
     }
     setZapretStatus('Результаты удалены', 'success');
