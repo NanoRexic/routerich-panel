@@ -145,6 +145,8 @@ require_zapret_uci() {
 
 api_install_zapret() {
 	fetch_latest_versions 2>/dev/null || true
+	fresh_install=0
+	[ -f /etc/init.d/zapret ] || fresh_install=1
 
 	if [ -f /etc/init.d/zapret ]; then
 		get_versions
@@ -163,6 +165,14 @@ api_install_zapret() {
 	fi
 
 	ensure_zapret_uci_config 2>/dev/null || true
+
+	if [ "$fresh_install" -eq 1 ]; then
+		zapret_exec configure_zapret_defaults 1 || {
+			json_error "Zapret установлен, но не удалось применить стратегию $STR_VERSION_AUTOINSTALL и список исключений"
+			return
+		}
+	fi
+
 	api_status | json_ok
 }
 
