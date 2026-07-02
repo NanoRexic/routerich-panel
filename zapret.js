@@ -720,13 +720,6 @@ async function runInstallZapret() {
   if (busy) return;
   const z2Warn = zapret2ActionWarning('install');
   if (z2Warn && !confirm(z2Warn)) return;
-  if (!confirm(
-    'Установить Zapret на роутер?\n\n' +
-    '• Обновит список пакетов\n' +
-    '• Скачает архив с GitHub и установит zapret\n' +
-    '• Применит стандартные настройки из Zapret-Manager (стратегия, исключения, hosts, Discord, игры)\n' +
-    '• Может занять несколько минут'
-  )) return;
 
   busy = true;
   setZapretError('');
@@ -761,11 +754,10 @@ async function runInstallZapret() {
   }
 }
 
-async function runAction(target, value, confirmMsg) {
+async function runAction(target, value) {
   if (busy) return;
   const z2Warn = zapret2ActionWarning(target);
   if (z2Warn && !confirm(z2Warn)) return;
-  if (confirmMsg && !confirm(confirmMsg)) return;
   busy = true;
   setZapretError('');
   setZapretStatus('Применение…', 'info');
@@ -839,14 +831,7 @@ document.getElementById('zapret-refresh').addEventListener('click', () => refres
 
 document.getElementById('zapret-zapret2-banner').addEventListener('click', (e) => {
   if (!e.target.closest('#zapret-zapret2-disable')) return;
-  runAction(
-      'zapret2_disable',
-      '',
-      'Остановить Zapret2 для работы с обычным Zapret?\n\n' +
-      '• Остановит службу\n' +
-      '• Отключит автозапуск\n' +
-      '• Настройки Enabled в LuCI не изменятся'
-    );
+  runAction('zapret2_disable', '');
 });
 
 document.getElementById('zapret-install-banner').addEventListener('click', (e) => {
@@ -865,8 +850,7 @@ zapretTabs.forEach((tab) => {
 document.getElementById('zapret-panel-overview').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-service]');
   if (!btn) return;
-  const map = { start: 'Запустить Zapret?', stop: 'Остановить Zapret?', restart: 'Перезапустить Zapret?' };
-  runAction(btn.dataset.service, '', map[btn.dataset.service]);
+  runAction(btn.dataset.service, '');
 });
 
 document.getElementById('zapret-panel-strategies').addEventListener('click', (e) => {
@@ -887,7 +871,7 @@ document.getElementById('zapret-youtube-apply').addEventListener('click', () => 
     setZapretError('Выберите YouTube-стратегию');
     return;
   }
-  runAction('youtube', val, 'Применить ' + val + '? Zapret будет перезапущен.');
+  runAction('youtube', val);
 });
 
 document.getElementById('zapret-discord-apply').addEventListener('click', () => {
@@ -896,14 +880,14 @@ document.getElementById('zapret-discord-apply').addEventListener('click', () => 
     setZapretError('Выберите Discord-стратегию (Dv)');
     return;
   }
-  runAction('discord_dv', val, 'Применить Dv' + val + '? Zapret будет перезапущен.');
+  runAction('discord_dv', val);
 });
 
 document.getElementById('zapret-panel-discord').addEventListener('click', (e) => {
   const script = e.target.closest('[data-discord-script]');
   if (script) {
     const val = script.dataset.discordScript;
-    if (val === 'remove') return runAction('discord_script', 'remove', 'Удалить Discord-скрипт?');
+    if (val === 'remove') return runAction('discord_script', 'remove');
     return runAction('discord_script', val);
   }
   const finland = e.target.closest('[data-finland]');
@@ -916,8 +900,7 @@ document.getElementById('zapret-panel-hosts').addEventListener('click', (e) => {
   const preset = e.target.closest('[data-hosts-preset]');
   if (!preset) return;
   const val = preset.dataset.hostsPreset;
-  const warns = { reset: 'Сбросить /etc/hosts до стандартного?', mafioznik: 'Заменить hosts на Mafioznik?', malw: 'Заменить hosts на Malw.link?', geohide: 'Заменить hosts на GeoHide?' };
-  runAction('hosts', val, warns[val]);
+  runAction('hosts', val);
 });
 
 document.getElementById('zapret-test-current').addEventListener('click', () => {
@@ -964,7 +947,6 @@ document.getElementById('zapret-panel-test-refresh').addEventListener('click', (
 
 document.getElementById('zapret-panel-test-clear').addEventListener('click', async () => {
   if (busy) return;
-  if (!confirm('Очистить историю тестов панели на роутере?')) return;
   busy = true;
   setZapretError('');
   setZapretStatus('Удаление…', 'info');
@@ -1000,7 +982,6 @@ document.getElementById('zapret-test-refresh-saved').addEventListener('click', (
 
 document.getElementById('zapret-test-clear').addEventListener('click', async () => {
   if (busy) return;
-  if (!confirm('Удалить результаты массовых тестов Zapret-Manager на роутере?')) return;
   busy = true;
   setZapretError('');
   setZapretStatus('Удаление…', 'info');
@@ -1035,13 +1016,9 @@ document.getElementById('zapret-panel-system').addEventListener('click', (e) => 
   const btn = e.target.closest('[data-system]');
   if (!btn) return;
   const val = btn.dataset.system;
-  const map = {
-    exclude_update: 'Обновить список исключений? Zapret будет перезапущен.',
-    'backup-save': 'Сохранить резервную копию Zapret?',
-    'backup-restore': 'Восстановить из резервной копии? Текущие настройки будут заменены.',
-    'backup-delete': 'Удалить резервную копию?'
-  };
+  if (val === 'backup-restore' && !confirm('Восстановить из резервной копии? Текущие настройки Zapret будут заменены.')) return;
+  if (val === 'backup-delete' && !confirm('Удалить резервную копию Zapret?')) return;
   const target = val.startsWith('backup-') ? 'backup' : val;
   const value = val.startsWith('backup-') ? val.replace('backup-', '') : '';
-  runAction(target, value, map[val]);
+  runAction(target, value);
 });
