@@ -230,6 +230,10 @@ async function refreshOperaProxyStatus() {
   try {
     const data = await apiGet('fix-opera-proxy');
     if (data.ok && data.data) {
+      if (data.data.podkop_detected || data.data.zeroblock_available === false) {
+        setOperaProxyVisible(false);
+        return;
+      }
       setOperaProxyVisible(!!data.data.needs_fix);
       if (operaProxyBtn) {
         operaProxyBtn.title = data.data.needs_fix

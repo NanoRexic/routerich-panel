@@ -17,7 +17,7 @@ json_ok_apply() {
 	opera_was="$4"
 	pkg_ver="$5"
 	custom_fix="$6"
-	printf '%s\n' "{\"ok\":true,\"message\":\"$7\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"opera_proxy_version\":\"$pkg_ver\",\"needs_fix\":false,\"custom_fix_applied\":$custom_fix,\"proxy_ok\":true,\"http_proxy\":\"$OPERA_HTTP_PROXY\"}}"
+	printf '%s\n' "{\"ok\":true,\"message\":\"$7\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"opera_proxy_version\":\"$pkg_ver\",\"needs_fix\":false,\"custom_fix_applied\":$custom_fix,\"proxy_ok\":true,\"http_proxy\":\"$OPERA_HTTP_PROXY\",\"podkop_detected\":false,\"zeroblock_available\":true}}"
 	exit 0
 }
 
@@ -31,8 +31,42 @@ json_ok_status() {
 	running_ok="$7"
 	proxy_ok="$8"
 	pkg_ver="$9"
-	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"custom_init_ok\":$init_ok,\"opera_proxy_running\":$running_ok,\"proxy_ok\":$proxy_ok,\"opera_proxy_version\":\"$pkg_ver\",\"http_proxy\":\"$OPERA_HTTP_PROXY\",\"proxy_config\":{\"type\":\"http\",\"server\":\"127.0.0.1\",\"server_port\":18080}}}"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"custom_init_ok\":$init_ok,\"opera_proxy_running\":$running_ok,\"proxy_ok\":$proxy_ok,\"opera_proxy_version\":\"$pkg_ver\",\"http_proxy\":\"$OPERA_HTTP_PROXY\",\"proxy_config\":{\"type\":\"http\",\"server\":\"127.0.0.1\",\"server_port\":18080},\"podkop_detected\":false,\"zeroblock_available\":true}}"
 	exit 0
+}
+
+json_ok_status_podkop() {
+	proxy_ok="$1"
+	running_ok="$2"
+	pkg_ver="$3"
+	podkop_ver="$4"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":false,\"proxy_ok\":$proxy_ok,\"opera_proxy_running\":$running_ok,\"opera_proxy_version\":\"$pkg_ver\",\"podkop_version\":\"$podkop_ver\",\"http_proxy\":\"$OPERA_HTTP_PROXY\",\"proxy_config\":{\"type\":\"http\",\"server\":\"127.0.0.1\",\"server_port\":18080},\"podkop_detected\":true,\"zeroblock_available\":false,\"blocked_reason\":\"Установлен Podkop — настройка через Zeroblock не поддерживается\"}}"
+	exit 0
+}
+
+podkop_installed() {
+	[ -f /etc/config/podkop ] && return 0
+	[ -f /etc/init.d/podkop ] && return 0
+	if opkg list-installed 2>/dev/null | grep -qE '^podkop |^luci-app-podkop '; then
+		return 0
+	fi
+	if command -v apk >/dev/null 2>&1; then
+		apk info -e podkop >/dev/null 2>&1 && return 0
+		apk info -e luci-app-podkop >/dev/null 2>&1 && return 0
+	fi
+	return 1
+}
+
+get_podkop_version() {
+	if opkg list-installed 2>/dev/null | grep -q '^podkop '; then
+		opkg list-installed 2>/dev/null | awk '/^podkop / {print $3; exit}'
+		return 0
+	fi
+	if command -v apk >/dev/null 2>&1 && apk info -e podkop >/dev/null 2>&1; then
+		apk info -v podkop 2>/dev/null | head -n1 | sed 's/^podkop-//;s/-r[0-9]*$//'
+		return 0
+	fi
+	printf ''
 }
 
 get_lan_ip() {
@@ -127,6 +161,18 @@ wait_for_http_proxy() {
 		sleep 2
 	done
 	return 1
+}
+
+collect_status_podkop() {
+	pkg_ver=$(get_opera_proxy_version)
+	podkop_ver=$(get_podkop_version)
+	running_ok=0
+	proxy_ok=0
+
+	if opera_proxy_running; then running_ok=1; fi
+	if test_http_proxy; then proxy_ok=1; fi
+
+	json_ok_status_podkop "$proxy_ok" "$running_ok" "$pkg_ver" "$podkop_ver"
 }
 
 collect_status() {
@@ -242,8 +288,23 @@ apply_fix() {
 echo "Content-Type: application/json"
 echo ""
 
-[ -f /etc/config/zeroblock ] || json_err "Zeroblock не установлен"
 [ -x /usr/bin/opera-proxy ] || json_err "opera-proxy не установлен"
+
+if podkop_installed; then
+	case "$REQUEST_METHOD" in
+		GET)
+			collect_status_podkop
+			;;
+		POST)
+			json_err "Установлен Podkop — исправление Opera-Proxy через Zeroblock недоступно. Настройте маршрутизацию в Podkop."
+			;;
+		*)
+			json_err "Method not allowed"
+			;;
+	esac
+fi
+
+[ -f /etc/config/zeroblock ] || json_err "Zeroblock не установлен (требуется для исправления Opera-Proxy)"
 
 case "$REQUEST_METHOD" in
 	GET)
