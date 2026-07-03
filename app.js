@@ -231,6 +231,11 @@ async function refreshOperaProxyStatus() {
     const data = await apiGet('fix-opera-proxy');
     if (data.ok && data.data) {
       setOperaProxyVisible(!!data.data.needs_fix);
+      if (operaProxyBtn) {
+        operaProxyBtn.title = data.data.needs_fix
+          ? 'Прокси ' + (data.data.http_proxy || '127.0.0.1:18080') + ' не отвечает — требуется исправление'
+          : '';
+      }
     } else {
       setOperaProxyVisible(false);
     }
@@ -241,17 +246,11 @@ async function refreshOperaProxyStatus() {
 
 if (operaProxyBtn) {
   operaProxyBtn.addEventListener('click', async () => {
-    if (!confirm(
-      'Настроить Opera-Proxy?\n\n' +
-      '• Обновит пакет opera-proxy через opkg (важно для старых версий)\n' +
-      '• Включит смешанный прокси awg10 (порт 2080), если выключен\n' +
-      '• Перезапишет /etc/init.d/opera-proxy с адресом роутера\n' +
-      '• Перезапустит Zeroblock и opera-proxy, проверит работу\n' +
-      '• Включит секцию opera в Zeroblock, если она выключена'
-    )) return;
-
     hideStatus();
-    showStatus('Обновление пакета и настройка Opera-Proxy… Подождите до 60 секунд.', 'info');
+    showStatus(
+      'Проверка Opera-Proxy… Обновление пакета, тест http://127.0.0.1:18080, при необходимости кастомный fix.',
+      'info'
+    );
     operaProxyBtn.disabled = true;
 
     try {
@@ -259,9 +258,9 @@ if (operaProxyBtn) {
       if (data.ok) {
         const d = data.data || {};
         let msg = data.message || 'Opera-Proxy настроен.';
-        if (d.opera_proxy_version) msg += ' Версия пакета: ' + d.opera_proxy_version + '.';
-        if (d.socks_proxy) msg += ' SOCKS: ' + d.socks_proxy + '.';
-        if (d.opera_section_was_enabled === 0) msg += ' Секция opera включена.';
+        if (d.opera_proxy_version) msg += ' Версия: ' + d.opera_proxy_version + '.';
+        if (d.http_proxy) msg += ' Прокси: ' + d.http_proxy + '.';
+        if (d.custom_fix_applied === false) msg += ' Кастомный init не потребовался.';
         showStatus(msg, 'success');
         setOperaProxyVisible(false);
       } else {

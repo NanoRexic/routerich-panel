@@ -3,6 +3,7 @@
 # Релизная секция Zeroblock для смешанного прокси
 ZB_SECTION="awg10"
 ZB_DEFAULT_MIXED_PORT="2080"
+OPERA_HTTP_PROXY="http://127.0.0.1:18080"
 
 json_err() {
 	printf '%s\n' "{\"ok\":false,\"error\":\"$1\"}"
@@ -15,7 +16,8 @@ json_ok_apply() {
 	mixed_was="$3"
 	opera_was="$4"
 	pkg_ver="$5"
-	printf '%s\n' "{\"ok\":true,\"message\":\"Opera-Proxy обновлён, настроен и проверен\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"opera_proxy_version\":\"$pkg_ver\",\"needs_fix\":false}}"
+	custom_fix="$6"
+	printf '%s\n' "{\"ok\":true,\"message\":\"$7\",\"data\":{\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_was_enabled\":$mixed_was,\"opera_section_was_enabled\":$opera_was,\"opera_proxy_version\":\"$pkg_ver\",\"needs_fix\":false,\"custom_fix_applied\":$custom_fix,\"proxy_ok\":true,\"http_proxy\":\"$OPERA_HTTP_PROXY\"}}"
 	exit 0
 }
 
@@ -27,8 +29,9 @@ json_ok_status() {
 	opera_ok="$5"
 	init_ok="$6"
 	running_ok="$7"
-	pkg_ver=$(get_opera_proxy_version)
-	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"init_script_ok\":$init_ok,\"opera_proxy_running\":$running_ok,\"opera_proxy_version\":\"$pkg_ver\"}}"
+	proxy_ok="$8"
+	pkg_ver="$9"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"needs_fix\":$needs_fix,\"lan_ip\":\"$lan_ip\",\"socks_proxy\":\"$socks_url\",\"mixed_proxy_ok\":$mixed_ok,\"opera_section_ok\":$opera_ok,\"custom_init_ok\":$init_ok,\"opera_proxy_running\":$running_ok,\"proxy_ok\":$proxy_ok,\"opera_proxy_version\":\"$pkg_ver\",\"http_proxy\":\"$OPERA_HTTP_PROXY\",\"proxy_config\":{\"type\":\"http\",\"server\":\"127.0.0.1\",\"server_port\":18080}}}"
 	exit 0
 }
 
@@ -87,39 +90,68 @@ wait_for_port() {
 	return 1
 }
 
-init_script_ok() {
+custom_init_ok() {
 	lan_ip="$1"
 	mixed_port="$2"
 	[ -f /etc/init.d/opera-proxy ] || return 1
-	grep -qF -- "-proxy socks5://${lan_ip}:${mixed_port}" /etc/init.d/opera-proxy 2>/dev/null
+	grep -q 'routerich-panel: opera-proxy fixed' /etc/init.d/opera-proxy 2>/dev/null \
+		&& grep -qF -- "-proxy socks5://${lan_ip}:${mixed_port}" /etc/init.d/opera-proxy 2>/dev/null
 }
 
 opera_proxy_running() {
 	/etc/init.d/opera-proxy status >/dev/null 2>&1 && port_listening 18080
 }
 
+test_http_proxy() {
+	port_listening 18080 || return 1
+	http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+		-x "$OPERA_HTTP_PROXY" http://ya.ru/ 2>/dev/null)
+	case "$http_code" in
+		200|301|302|307|308) return 0 ;;
+	esac
+	case "$http_code" in
+		[0-9][0-9][0-9])
+			[ "$http_code" != "000" ] && return 0
+			;;
+	esac
+	return 1
+}
+
+wait_for_http_proxy() {
+	i=0
+	while [ "$i" -lt 12 ]; do
+		if test_http_proxy; then
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 2
+	done
+	return 1
+}
+
 collect_status() {
 	lan_ip=$(get_lan_ip)
 	[ -n "$lan_ip" ] || lan_ip=$(uci -q get network.lan.ipaddr)
 	mixed_port=$(get_mixed_port)
+	pkg_ver=$(get_opera_proxy_version)
 
 	mixed_ok=0
 	opera_ok=0
 	init_ok=0
 	running_ok=0
+	proxy_ok=0
 
 	[ "$(uci -q get "zeroblock.${ZB_SECTION}.enable_mixed_proxy")" = "1" ] && mixed_ok=1
 	[ "$(uci -q get zeroblock.opera.enabled)" = "1" ] && opera_ok=1
-	if init_script_ok "$lan_ip" "$mixed_port"; then init_ok=1; fi
+	if custom_init_ok "$lan_ip" "$mixed_port"; then init_ok=1; fi
 	if opera_proxy_running; then running_ok=1; fi
+	if test_http_proxy; then proxy_ok=1; fi
 
-	needs_fix=1
-	if [ "$mixed_ok" -eq 1 ] && [ "$opera_ok" -eq 1 ] && [ "$init_ok" -eq 1 ] && [ "$running_ok" -eq 1 ]; then
-		needs_fix=0
-	fi
+	needs_fix=0
+	[ "$proxy_ok" -eq 0 ] && needs_fix=1
 
 	socks_url="socks5://${lan_ip}:${mixed_port}"
-	json_ok_status "$needs_fix" "$lan_ip" "$socks_url" "$mixed_ok" "$opera_ok" "$init_ok" "$running_ok"
+	json_ok_status "$needs_fix" "$lan_ip" "$socks_url" "$mixed_ok" "$opera_ok" "$init_ok" "$running_ok" "$proxy_ok" "$pkg_ver"
 }
 
 prepare_zeroblock_config() {
@@ -130,8 +162,6 @@ prepare_zeroblock_config() {
 		uci -q set "zeroblock.${ZB_SECTION}.enable_mixed_proxy=1"
 		uci -q set "zeroblock.${ZB_SECTION}.mixed_port=${ZB_DEFAULT_MIXED_PORT}"
 	fi
-
-	MIXED_PORT=$(get_mixed_port)
 
 	if [ "$(uci -q get zeroblock.opera.enabled)" != "1" ]; then
 		uci -q set zeroblock.opera.enabled=1
@@ -166,28 +196,13 @@ EOF
 	chmod +x /etc/init.d/opera-proxy
 }
 
-verify_opera_proxy() {
-	i=0
-	while [ "$i" -lt 12 ]; do
-		if opera_proxy_running; then
-			http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-				-x http://127.0.0.1:18080 http://ya.ru/ 2>/dev/null)
-			case "$http_code" in
-				200|301|302|307|308)
-					return 0
-					;;
-			esac
-			# любой ответ HTTP — прокси принимает соединения
-			case "$http_code" in
-				[0-9][0-9][0-9])
-					[ "$http_code" != "000" ] && return 0
-					;;
-			esac
-		fi
-		i=$((i + 1))
-		sleep 2
-	done
-	return 1
+restart_zeroblock_and_opera() {
+	/etc/init.d/zeroblock restart 2>/dev/null || json_err "Не удалось перезапустить Zeroblock"
+	MIXED_PORT=$(get_mixed_port)
+	if ! wait_for_port "$MIXED_PORT" 25; then
+		json_err "Смешанный прокси ${ZB_SECTION} не слушает порт ${MIXED_PORT} после перезапуска Zeroblock"
+	fi
+	/etc/init.d/opera-proxy restart 2>/dev/null || json_err "Не удалось перезапустить opera-proxy"
 }
 
 apply_fix() {
@@ -208,19 +223,20 @@ apply_fix() {
 	MIXED_PORT=$(get_mixed_port)
 	SOCKS_URL="socks5://${LAN_IP}:${MIXED_PORT}"
 
+	restart_zeroblock_and_opera
+	if wait_for_http_proxy; then
+		json_ok_apply "$LAN_IP" "$SOCKS_URL" "$mixed_was_enabled" "$opera_was_enabled" "$PKG_VER" false \
+			"Opera-Proxy обновлён и работает без кастомного исправления"
+	fi
+
 	write_opera_init "$LAN_IP" "$MIXED_PORT"
-
-	/etc/init.d/zeroblock restart 2>/dev/null || json_err "Не удалось перезапустить Zeroblock"
-	if ! wait_for_port "$MIXED_PORT" 25; then
-		json_err "Смешанный прокси ${ZB_SECTION} не слушает порт ${MIXED_PORT} после перезапуска Zeroblock"
+	restart_zeroblock_and_opera
+	if ! wait_for_http_proxy; then
+		json_err "opera-proxy не прошёл проверку через ${OPERA_HTTP_PROXY}. SOCKS: ${SOCKS_URL}"
 	fi
 
-	/etc/init.d/opera-proxy restart 2>/dev/null || json_err "Не удалось перезапустить opera-proxy"
-	if ! verify_opera_proxy; then
-		json_err "opera-proxy не прошёл проверку. SOCKS: ${SOCKS_URL}"
-	fi
-
-	json_ok_apply "$LAN_IP" "$SOCKS_URL" "$mixed_was_enabled" "$opera_was_enabled" "$PKG_VER"
+	json_ok_apply "$LAN_IP" "$SOCKS_URL" "$mixed_was_enabled" "$opera_was_enabled" "$PKG_VER" true \
+		"Opera-Proxy обновлён, применено кастомное исправление и проверено подключение"
 }
 
 echo "Content-Type: application/json"
