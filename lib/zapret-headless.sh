@@ -64,6 +64,14 @@ ALL_BLOCKS="$AI\n$INSTAGRAM\n$NTC\n$RUTOR\n$LIBRUSEC\n$TGWeb\n$TWCH\n$SCell\n$SP
 hosts_enabled() { if grep -q "### dns.malw.link" /etc/hosts; then hosts_echo="Malw.link"; return 0; elif grep -q "#mafioznik" /etc/hosts; then hosts_echo="Mafioznik"; return 0; elif grep -q "### dns.geohide.ru" /etc/hosts; then hosts_echo="GeoHide"; return 0
 elif grep -q "45.155.204.190\|instagram.com\|rutor.info\|lib.rus.ec\|ntc.party\|twitch.tv\|web.telegram.org\|www.spotify.com\|store.supercell.com\|raw.githubusercontent.com\|lkfl2.nalog.ru" /etc/hosts; then hosts_echo="добавлены"; return 0; fi; return 1; }
 hosts_add() { printf "%b\n" "$1" | while IFS= read -r L; do grep -qxF "$L" /etc/hosts || echo "$L" >> /etc/hosts; done; /etc/init.d/dnsmasq restart >/dev/null 2>&1; }
+ensure_github_hosts() {
+	git="githubusercontent.com"
+	grep -q "raw.$git" /etc/hosts 2>/dev/null && return 0
+	printf "#%s\n185.199.109.133 raw.%s release-assets.%s\n185.199.108.133 private-user-images.%s gist.%s avatars.%s\n" \
+		"$git" "$git" "$git" "$git" "$git" "$git" >> /etc/hosts
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	return 0
+}
 ZAPRET_RESTART () { chmod +x /opt/zapret/sync_config.sh; /opt/zapret/sync_config.sh; /etc/init.d/zapret restart >/dev/null 2>&1; sleep 1; }
 ZAPRET_UCI_INIT_RAN=0
 zapret_uci_config_ready() {
@@ -855,8 +863,28 @@ add_block() { printf '%b\n' "$1" | while IFS= read -r line; do [ -z "$line" ] &&
 add_GEO_HOSTS() { echo -e "\n${MAGENTA}Заменяем hosts на GeoHide hosts${NC}"; : > /etc/hosts; echo -e "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters" > /etc/hosts
 wget -q -U "Mozilla/5.0" -O - "$GEO_HOSTS" >> /etc/hosts; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}заменён на ${NC}GeoHide hosts${GREEN}!${NC}\n"; PAUSE; }
 remove_block() { printf '%b\n' "$1" | while IFS= read -r line; do [ -z "$line" ] && continue; sed -i "\|^$line$|d" "$HOSTS_FILE"; done; }
-toggle_block() { if status_block "$1"; then remove_block "$1"; echo -e "\n${CYAN}Удаляем и применяем${NC}"; else add_block "$1"; echo -e "\n${CYAN}Добавляем и применяем${NC}"; fi; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "${GREEN}Изменения применены!${NC}\n"; PAUSE; }
-toggle_all() { if status_block "$ALL_BLOCKS"; then remove_block "$ALL_BLOCKS"; echo -e "\n${CYAN}Удаляем и применяем${NC}"; else add_block "$ALL_BLOCKS"; echo -e "\n${CYAN}Добавляем и применяем${NC}"; fi; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "${GREEN}Изменения применены!${NC}\n"; PAUSE; }
+toggle_block() {
+	if status_block "$1"; then
+		remove_block "$1"
+		[ -z "$ZAPRET_HEADLESS" ] && echo -e "\n${CYAN}Удаляем и применяем${NC}"
+	else
+		add_block "$1"
+		[ -z "$ZAPRET_HEADLESS" ] && echo -e "\n${CYAN}Добавляем и применяем${NC}"
+	fi
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	[ -z "$ZAPRET_HEADLESS" ] && { echo -e "${GREEN}Изменения применены!${NC}\n"; PAUSE; }
+}
+toggle_all() {
+	if status_block "$ALL_BLOCKS"; then
+		remove_block "$ALL_BLOCKS"
+		[ -z "$ZAPRET_HEADLESS" ] && echo -e "\n${CYAN}Удаляем и применяем${NC}"
+	else
+		add_block "$ALL_BLOCKS"
+		[ -z "$ZAPRET_HEADLESS" ] && echo -e "\n${CYAN}Добавляем и применяем${NC}"
+	fi
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	[ -z "$ZAPRET_HEADLESS" ] && { echo -e "${GREEN}Изменения применены!${NC}\n"; PAUSE; }
+}
 get_state() { status_block "$1" && echo "Удалить " || echo "Добавить"; }
 menu_hosts() { while true; do clear; S_ALL=$(status_block "$ALL_BLOCKS" && echo "${GREEN}Удалить все домены${NC}" || echo "${GREEN}Добавить все домены${NC}"); prin=0
 echo -e "${MAGENTA}Меню управления доменами в hosts${NC}\n"; if hosts_enabled; then echo -e "${YELLOW}Домены в hosts: ${GREEN}$hosts_echo${NC}"; prin=1; fi; [ "$prin" -eq 1 ] && echo

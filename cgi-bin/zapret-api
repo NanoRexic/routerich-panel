@@ -177,6 +177,7 @@ api_install_zapret() {
 }
 
 api_status() {
+	ensure_github_hosts 2>/dev/null || true
 	uci_init_ran=0
 	uci_ready=0
 	if [ -f /etc/init.d/zapret ]; then
