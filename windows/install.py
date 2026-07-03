@@ -46,6 +46,13 @@ def run_cmd(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tup
     return code, out, err
 
 
+def _normalize_router_text(data: bytes, local: Path, remote: str) -> bytes:
+    name = local.name
+    if name.endswith(".sh") or "/cgi-bin/" in remote.replace("\\", "/") or remote.endswith("/cgi-bin/" + name):
+        return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return data
+
+
 def upload_file(client: paramiko.SSHClient | NativeSSHClient, local: Path, remote: str, mode: str) -> None:
     if isinstance(client, NativeSSHClient):
         client.upload_file(local, remote, mode)
@@ -53,7 +60,7 @@ def upload_file(client: paramiko.SSHClient | NativeSSHClient, local: Path, remot
     remote_dir = remote.rsplit("/", 1)[0]
     run_cmd(client, f"mkdir -p '{remote_dir}'", timeout=30)
     with local.open("rb") as f:
-        data = f.read()
+        data = _normalize_router_text(f.read(), local, remote)
     stdin, stdout, stderr = client.exec_command(f"cat > '{remote}'", timeout=120)
     stdin.write(data)
     stdin.channel.shutdown_write()

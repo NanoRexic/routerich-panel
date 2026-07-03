@@ -335,17 +335,22 @@ async function refreshPanelUpdateStatus() {
       cache: 'no-store'
     });
     const data = await res.json().catch(() => ({ ok: false }));
-    if (data.ok && data.data && data.data.update_available) {
-      const embedded = getEmbeddedPanelVersion();
-      const latest = data.data.latest || '';
-      if (embedded && !versionGt(latest, embedded)) {
-        setPanelUpdateVisible(false);
+    if (data.ok && data.data) {
+      if (data.data.update_available) {
+        const embedded = getEmbeddedPanelVersion();
+        const latest = data.data.latest || '';
+        if (embedded && !versionGt(latest, embedded)) {
+          setPanelUpdateVisible(false);
+          return;
+        }
+        setPanelUpdateVisible(true, data.data);
         return;
       }
-      setPanelUpdateVisible(true, data.data);
-    } else {
-      setPanelUpdateVisible(false);
+      if (data.data.remote_ok === false && panelUpdateBtn) {
+        panelUpdateBtn.title = 'Не удалось проверить обновления на GitHub (сеть или доступ к github.com)';
+      }
     }
+    setPanelUpdateVisible(false);
   } catch (_) {
     setPanelUpdateVisible(false);
   }

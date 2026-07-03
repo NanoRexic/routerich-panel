@@ -1,6 +1,7 @@
 #!/bin/sh
 
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
+REPO_FALLBACK="https://raw.githubusercontent.com/NanoRexic/routerich-panel/refs/heads/main"
 PANEL_HOME="/www/routerich-panel"
 VERSION_LOCAL="/etc/routerich-panel/VERSION"
 UA='Mozilla/5.0 (compatible; RouteRich-Panel/1.0)'
@@ -19,7 +20,8 @@ json_ok_status() {
 	current="$1"
 	latest="$2"
 	available="$3"
-	printf '%s\n' "{\"ok\":true,\"data\":{\"current\":\"$current\",\"latest\":\"$latest\",\"update_available\":$available}}"
+	remote_ok="${4:-true}"
+	printf '%s\n' "{\"ok\":true,\"data\":{\"current\":\"$current\",\"latest\":\"$latest\",\"update_available\":$available,\"remote_ok\":$remote_ok}}"
 	exit 0
 }
 
@@ -37,12 +39,22 @@ fetch() {
 		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
 	esac
 	if command -v wget >/dev/null 2>&1; then
-		wget -q -U "$UA" -O "$out" "$bust_url" 2>/dev/null && return 0
+		wget -q --no-cache -U "$UA" -O "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	if command -v curl >/dev/null 2>&1; then
 		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
 	fi
 	return 1
+}
+
+normalize_deployed_file() {
+	dst="$1"
+	case "$dst" in
+		*.sh|*/cgi-bin/*)
+			[ -f "$dst" ] || return 0
+			sed 's/\r$//' "$dst" > "$dst.norm" 2>/dev/null && mv "$dst.norm" "$dst"
+			;;
+	esac
 }
 
 ver_gt() {
@@ -106,8 +118,16 @@ sync_version_files() {
 
 get_remote_version() {
 	mkdir -p "$TMP_DIR"
-	fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" || return 1
-	tr -d '\r\n' < "$TMP_DIR/VERSION"
+	for base in "$REPO_RAW" "$REPO_FALLBACK"; do
+		[ -n "$base" ] || continue
+		fetch "$base/VERSION" "$TMP_DIR/VERSION" || continue
+		ver=$(tr -d '\r\n' < "$TMP_DIR/VERSION")
+		[ -n "$ver" ] || continue
+		REPO_RAW="$base"
+		printf '%s' "$ver"
+		return 0
+	done
+	return 1
 }
 
 deploy_file() {
@@ -118,6 +138,7 @@ deploy_file() {
 	dir=$(dirname "$dst")
 	mkdir -p "$dir"
 	fetch "$url" "$dst" || return 1
+	normalize_deployed_file "$dst"
 	chmod "$mode" "$dst" 2>/dev/null || true
 }
 
@@ -183,13 +204,13 @@ run_update() {
 check_status() {
 	current=$(get_local_version)
 	sync_version_files "$current"
-	latest=$(get_remote_version) || json_ok_status "$current" "$current" false
-
-	if ver_gt "$latest" "$current"; then
-		json_ok_status "$current" "$latest" true
+	if latest=$(get_remote_version); then
+		if ver_gt "$latest" "$current"; then
+			json_ok_status "$current" "$latest" true true
+		fi
+		json_ok_status "$current" "$latest" false true
 	fi
-
-	json_ok_status "$current" "$latest" false
+	json_ok_status "$current" "$current" false false
 }
 
 echo "Content-Type: application/json"
