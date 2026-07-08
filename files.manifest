@@ -13,6 +13,7 @@
     {"src": "VERSION", "dst": "/www/routerich-panel/VERSION", "mode": "644"},
     {"src": "VERSION", "dst": "/etc/routerich-panel/VERSION", "mode": "644"},
     {"src": "lib/zapret-headless.sh", "dst": "/etc/routerich-panel/zapret-headless.sh", "mode": "755"},
+    {"src": "lib/network-fallback.sh", "dst": "/etc/routerich-panel/network-fallback.sh", "mode": "755"},
     {"src": "index.html", "dst": "/www/routerich-panel/index.html", "mode": "644"},
     {"src": "app.js", "dst": "/www/routerich-panel/app.js", "mode": "644"},
     {"src": "shortcut.js", "dst": "/www/routerich-panel/shortcut.js", "mode": "644"},

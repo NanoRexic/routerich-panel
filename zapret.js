@@ -357,7 +357,7 @@ function renderHostsBlocks(d) {
   const map = [
     ['nalog', 'Налог'], ['rutor', 'Rutor'], ['ntc', 'NTC'], ['instagram', 'Instagram'],
     ['librusec', 'Lib.rus.ec'], ['ai', 'AI'], ['twitch', 'Twitch'], ['tgweb', 'Telegram Web'],
-    ['spotify', 'Spotify'], ['supercell', 'Supercell'], ['github', 'githubusercontent.com']
+    ['spotify', 'Spotify'], ['supercell', 'Supercell'], ['github', 'GitHub']
   ];
   const el = document.getElementById('zapret-hosts-blocks');
   el.innerHTML = map.map(([key, label]) => {

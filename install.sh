@@ -102,6 +102,7 @@ else
 	deploy_file "cgi-bin/zapret-api" "/www/routerich-panel/cgi-bin/zapret-api" "755"
 	deploy_file "cgi-bin/panel-update" "/www/routerich-panel/cgi-bin/panel-update" "755"
 	deploy_file "lib/zapret-headless.sh" "/etc/routerich-panel/zapret-headless.sh" "755"
+	deploy_file "lib/network-fallback.sh" "/etc/routerich-panel/network-fallback.sh" "755"
 	deploy_file "index.html" "/www/routerich-panel/index.html" "644"
 	deploy_file "app.js" "/www/routerich-panel/app.js" "644"
 	deploy_file "shortcut.js" "/www/routerich-panel/shortcut.js" "644"

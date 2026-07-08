@@ -7,6 +7,10 @@ VERSION_LOCAL="/etc/routerich-panel/VERSION"
 UA='Mozilla/5.0 (compatible; RouteRich-Panel/1.0)'
 TMP_DIR="/tmp/routerich-update-$$"
 MANIFEST="$TMP_DIR/files.manifest"
+FALLBACK_LIB="/etc/routerich-panel/network-fallback.sh"
+_ZB_FALLBACK_TRIED=0
+
+[ -f "$FALLBACK_LIB" ] && . "$FALLBACK_LIB"
 
 cleanup() { rm -rf "$TMP_DIR" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
@@ -31,7 +35,7 @@ json_ok_update() {
 	exit 0
 }
 
-fetch() {
+_fetch_once() {
 	url="$1"
 	out="$2"
 	case "$url" in
@@ -43,6 +47,18 @@ fetch() {
 	fi
 	if command -v curl >/dev/null 2>&1; then
 		curl -fsSL -A "$UA" -H 'Cache-Control: no-cache' -o "$out" "$bust_url" 2>/dev/null && return 0
+	fi
+	return 1
+}
+
+fetch() {
+	_fetch_once "$@" && return 0
+	[ "$_ZB_FALLBACK_TRIED" = "1" ] && return 1
+	if command -v apply_zeroblock_github_fallback >/dev/null 2>&1; then
+		if apply_zeroblock_github_fallback; then
+			_ZB_FALLBACK_TRIED=1
+			_fetch_once "$@" && return 0
+		fi
 	fi
 	return 1
 }
@@ -151,6 +167,7 @@ deploy_fallback() {
 	deploy_file "cgi-bin/zapret-api" "/www/routerich-panel/cgi-bin/zapret-api" "755" || return 1
 	deploy_file "cgi-bin/panel-update" "/www/routerich-panel/cgi-bin/panel-update" "755" || return 1
 	deploy_file "lib/zapret-headless.sh" "/etc/routerich-panel/zapret-headless.sh" "755" || return 1
+	deploy_file "lib/network-fallback.sh" "/etc/routerich-panel/network-fallback.sh" "755" || return 1
 	deploy_file "index.html" "/www/routerich-panel/index.html" "644" || return 1
 	deploy_file "app.js" "/www/routerich-panel/app.js" "644" || return 1
 	deploy_file "shortcut.js" "/www/routerich-panel/shortcut.js" "644" || return 1
