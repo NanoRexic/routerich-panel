@@ -2,6 +2,7 @@
 
 const zapretOverlay = document.getElementById('zapret-overlay');
 const zapretError = document.getElementById('zapret-error');
+const zapretStatus = document.getElementById('zapret-status');
 const zapretTabs = document.querySelectorAll('.zapret-tab');
 const notify = () => window.RouteRichNotify;
 const zapretPanels = document.querySelectorAll('.zapret-panel');
@@ -31,12 +32,27 @@ const PANEL_TEST_MODE_LABELS = {
 };
 
 function setZapretError(msg) {
-  zapretError.hidden = true;
-  if (!msg) return;
-  notify()?.error(msg, { source: 'Zapret', title: 'Ошибка' });
+  if (!msg) {
+    if (zapretError) {
+      zapretError.hidden = true;
+      zapretError.textContent = '';
+    }
+    return;
+  }
+  if (zapretError) {
+    zapretError.textContent = msg;
+    zapretError.hidden = false;
+  }
 }
 
 function setZapretStatus(msg, type) {
+  if (zapretStatus) {
+    if (!msg) {
+      zapretStatus.hidden = true;
+    } else {
+      zapretStatus.hidden = true;
+    }
+  }
   const n = notify();
   if (!n) return;
   if (!msg) {
@@ -791,6 +807,7 @@ async function runAction(target, value) {
 }
 
 function showZapretModal() {
+  if (!zapretOverlay) return;
   zapretOverlay.hidden = false;
   document.body.classList.add('modal-open');
   showZapret2DisabledBanner = false;
@@ -809,6 +826,7 @@ function showZapretModal() {
 }
 
 function hideZapretModal() {
+  if (!zapretOverlay) return;
   zapretOverlay.hidden = true;
   document.body.classList.remove('modal-open');
   showZapret2DisabledBanner = false;
@@ -827,35 +845,45 @@ function switchTab(tabId) {
   }
 }
 
-document.getElementById('btn-zapret').addEventListener('click', showZapretModal);
-document.getElementById('zapret-close').addEventListener('click', hideZapretModal);
-document.getElementById('zapret-refresh').addEventListener('click', () => refreshZapret());
+function bindClick(id, handler) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', handler);
+}
 
-document.getElementById('zapret-zapret2-banner').addEventListener('click', (e) => {
-  if (!e.target.closest('#zapret-zapret2-disable')) return;
-  runAction('zapret2_disable', '');
-});
+function initZapretUi() {
+  bindClick('btn-zapret', showZapretModal);
+  bindClick('zapret-close', hideZapretModal);
+  bindClick('zapret-refresh', () => refreshZapret());
 
-document.getElementById('zapret-install-banner').addEventListener('click', (e) => {
-  if (!e.target.closest('#zapret-install-btn')) return;
-  runInstallZapret();
-});
+  bindClick('zapret-zapret2-banner', (e) => {
+    if (!e.target.closest('#zapret-zapret2-disable')) return;
+    runAction('zapret2_disable', '');
+  });
 
-zapretOverlay.addEventListener('click', (e) => {
-  if (e.target === zapretOverlay) hideZapretModal();
-});
+  bindClick('zapret-install-banner', (e) => {
+    if (!e.target.closest('#zapret-install-btn')) return;
+    runInstallZapret();
+  });
 
-zapretTabs.forEach((tab) => {
-  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-});
+  if (zapretOverlay) {
+    zapretOverlay.addEventListener('click', (e) => {
+      if (e.target === zapretOverlay) hideZapretModal();
+    });
+  }
 
-document.getElementById('zapret-panel-overview').addEventListener('click', (e) => {
+  zapretTabs.forEach((tab) => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+  });
+
+  const panelOverview = document.getElementById('zapret-panel-overview');
+  if (panelOverview) panelOverview.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-service]');
   if (!btn) return;
   runAction(btn.dataset.service, '');
-});
+  });
 
-document.getElementById('zapret-panel-strategies').addEventListener('click', (e) => {
+  const panelStrategies = document.getElementById('zapret-panel-strategies');
+  if (panelStrategies) panelStrategies.addEventListener('click', (e) => {
   const base = e.target.closest('[data-base]');
   if (base) return runAction('base', base.dataset.base);
   const gv = e.target.closest('[data-gv]');
@@ -865,27 +893,28 @@ document.getElementById('zapret-panel-strategies').addEventListener('click', (e)
   }
   const toggle = e.target.closest('[data-toggle]');
   if (toggle) return runAction('toggle', toggle.dataset.toggle);
-});
+  });
 
-document.getElementById('zapret-youtube-apply').addEventListener('click', () => {
+  bindClick('zapret-youtube-apply', () => {
   const val = youtubeSelect ? youtubeSelect.value : '';
   if (!val) {
     setZapretError('Выберите YouTube-стратегию');
     return;
   }
   runAction('youtube', val);
-});
+  });
 
-document.getElementById('zapret-discord-apply').addEventListener('click', () => {
+  bindClick('zapret-discord-apply', () => {
   const val = discordSelect ? discordSelect.value : '';
   if (!val) {
     setZapretError('Выберите Discord-стратегию (Dv)');
     return;
   }
   runAction('discord_dv', val);
-});
+  });
 
-document.getElementById('zapret-panel-discord').addEventListener('click', (e) => {
+  const panelDiscord = document.getElementById('zapret-panel-discord');
+  if (panelDiscord) panelDiscord.addEventListener('click', (e) => {
   const script = e.target.closest('[data-discord-script]');
   if (script) {
     const val = script.dataset.discordScript;
@@ -894,22 +923,21 @@ document.getElementById('zapret-panel-discord').addEventListener('click', (e) =>
   }
   const finland = e.target.closest('[data-finland]');
   if (finland) return runAction('toggle', 'finland');
-});
+  });
 
-document.getElementById('zapret-panel-hosts').addEventListener('click', (e) => {
+  const panelHosts = document.getElementById('zapret-panel-hosts');
+  if (panelHosts) panelHosts.addEventListener('click', (e) => {
   const block = e.target.closest('[data-hosts]');
   if (block) return runAction('hosts', block.dataset.hosts);
   const preset = e.target.closest('[data-hosts-preset]');
   if (!preset) return;
   const val = preset.dataset.hostsPreset;
   runAction('hosts', val);
-});
+  });
 
-document.getElementById('zapret-test-current').addEventListener('click', () => {
-  runTest('current');
-});
+  bindClick('zapret-test-current', () => runTest('current'));
 
-document.getElementById('zapret-test-domain').addEventListener('click', () => {
+  bindClick('zapret-test-domain', () => {
   const input = document.getElementById('zapret-test-domains');
   const val = input ? input.value.trim() : '';
   if (!val) {
@@ -917,14 +945,17 @@ document.getElementById('zapret-test-domain').addEventListener('click', () => {
     return;
   }
   runTest('domain', { domains: val });
-});
+  });
 
-document.getElementById('zapret-test-strategy-type').addEventListener('change', (e) => {
-  testStrategiesType = '';
-  loadTestStrategies(e.target.value, true);
-});
+  const testStrategyType = document.getElementById('zapret-test-strategy-type');
+  if (testStrategyType) {
+    testStrategyType.addEventListener('change', (e) => {
+      testStrategiesType = '';
+      loadTestStrategies(e.target.value, true);
+    });
+  }
 
-document.getElementById('zapret-test-strategy').addEventListener('click', () => {
+  bindClick('zapret-test-strategy', () => {
   const typeSelect = document.getElementById('zapret-test-strategy-type');
   const listSelect = document.getElementById('zapret-test-strategy-select');
   const type = typeSelect ? typeSelect.value : '';
@@ -934,20 +965,21 @@ document.getElementById('zapret-test-strategy').addEventListener('click', () => 
     return;
   }
   runTest('strategy', { type: type, name: name });
-});
+  });
 
-document.getElementById('zapret-panel-test-history').addEventListener('click', (e) => {
+  const panelTestHistory = document.getElementById('zapret-panel-test-history');
+  if (panelTestHistory) panelTestHistory.addEventListener('click', (e) => {
   const row = e.target.closest('[data-panel-test-id]');
   if (!row) return;
   togglePanelTestDetail(row.dataset.panelTestId);
-});
+  });
 
-document.getElementById('zapret-panel-test-refresh').addEventListener('click', () => {
-  panelTestHistoryLoaded = false;
-  loadPanelTestHistory(true);
-});
+  bindClick('zapret-panel-test-refresh', () => {
+    panelTestHistoryLoaded = false;
+    loadPanelTestHistory(true);
+  });
 
-document.getElementById('zapret-panel-test-clear').addEventListener('click', async () => {
+  bindClick('zapret-panel-test-clear', async () => {
   if (busy) return;
   busy = true;
   setZapretError('');
@@ -975,14 +1007,14 @@ document.getElementById('zapret-panel-test-clear').addEventListener('click', asy
   } finally {
     busy = false;
   }
-});
+  });
 
-document.getElementById('zapret-test-refresh-saved').addEventListener('click', () => {
-  testResultsLoaded = false;
-  loadSavedTestResults(true);
-});
+  bindClick('zapret-test-refresh-saved', () => {
+    testResultsLoaded = false;
+    loadSavedTestResults(true);
+  });
 
-document.getElementById('zapret-test-clear').addEventListener('click', async () => {
+  bindClick('zapret-test-clear', async () => {
   if (busy) return;
   busy = true;
   setZapretError('');
@@ -1012,15 +1044,23 @@ document.getElementById('zapret-test-clear').addEventListener('click', async () 
   } finally {
     busy = false;
   }
-});
+  });
 
-document.getElementById('zapret-panel-system').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-system]');
-  if (!btn) return;
-  const val = btn.dataset.system;
-  if (val === 'backup-restore' && !confirm('Восстановить из резервной копии? Текущие настройки Zapret будут заменены.')) return;
-  if (val === 'backup-delete' && !confirm('Удалить резервную копию Zapret?')) return;
-  const target = val.startsWith('backup-') ? 'backup' : val;
-  const value = val.startsWith('backup-') ? val.replace('backup-', '') : '';
-  runAction(target, value);
-});
+  const panelSystem = document.getElementById('zapret-panel-system');
+  if (panelSystem) panelSystem.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-system]');
+    if (!btn) return;
+    const val = btn.dataset.system;
+    if (val === 'backup-restore' && !confirm('Восстановить из резервной копии? Текущие настройки Zapret будут заменены.')) return;
+    if (val === 'backup-delete' && !confirm('Удалить резервную копию Zapret?')) return;
+    const target = val.startsWith('backup-') ? 'backup' : val;
+    const value = val.startsWith('backup-') ? val.replace('backup-', '') : '';
+    runAction(target, value);
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initZapretUi);
+} else {
+  initZapretUi();
+}
