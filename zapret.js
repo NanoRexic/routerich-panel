@@ -4,7 +4,7 @@ const zapretOverlay = document.getElementById('zapret-overlay');
 const zapretError = document.getElementById('zapret-error');
 const zapretStatus = document.getElementById('zapret-status');
 const zapretTabs = document.querySelectorAll('.zapret-tab');
-const notify = () => window.RouteRichNotify;
+const zapretNotify = () => window.RouteRichNotify;
 const zapretPanels = document.querySelectorAll('.zapret-panel');
 const youtubeSelect = document.getElementById('zapret-youtube-select');
 const discordSelect = document.getElementById('zapret-discord-select');
@@ -31,6 +31,8 @@ const PANEL_TEST_MODE_LABELS = {
   strategy: 'Стратегия'
 };
 
+const ZAPRET_STATUS_VISIBLE_MS = 4500;
+
 function setZapretError(msg) {
   if (!msg) {
     if (zapretError) {
@@ -53,17 +55,22 @@ function setZapretStatus(msg, type) {
       zapretStatus.hidden = true;
     }
   }
-  const n = notify();
+  const n = zapretNotify();
   if (!n) return;
   if (!msg) {
-    n.dismissByGroup('zapret');
+    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret');
+    else n.dismissByGroup('zapret');
     return;
   }
+  const statusType = type || 'info';
   n.show({
     message: msg,
-    type: type || 'info',
+    type: statusType,
     source: 'Zapret',
-    group: 'zapret'
+    group: 'zapret',
+    stack: true,
+    toastOnly: true,
+    duration: statusType === 'success' ? ZAPRET_STATUS_VISIBLE_MS : ZAPRET_STATUS_VISIBLE_MS + 1000
   });
 }
 
@@ -674,8 +681,6 @@ async function refreshZapret(silent) {
     if (!silent && !(zapretData.uci && zapretData.uci.initialized)) {
       setZapretStatus('Обновлено', 'success');
     }
-    const statusDelay = (zapretData.uci && zapretData.uci.initialized) ? 4000 : 1500;
-    setTimeout(() => { if (!busy) setZapretStatus(''); }, statusDelay);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -710,7 +715,6 @@ async function runTest(mode, options) {
       loadPanelTestHistory(true);
     }
     setZapretStatus('Тест завершён и сохранён в историю', 'success');
-    setTimeout(() => setZapretStatus(''), 2500);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -763,7 +767,6 @@ async function runInstallZapret() {
     }
     youtubeLoaded = false;
     loadYoutubeList();
-    setTimeout(() => { if (!busy) setZapretStatus(''); }, 4000);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -797,7 +800,6 @@ async function runAction(target, value) {
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
-    setTimeout(() => setZapretStatus(''), target === 'zapret2_disable' ? 4000 : 2000);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -807,8 +809,9 @@ async function runAction(target, value) {
 }
 
 function showZapretModal() {
-  if (!zapretOverlay) return;
-  zapretOverlay.hidden = false;
+  const overlay = zapretOverlay || document.getElementById('zapret-overlay');
+  if (!overlay) return;
+  overlay.hidden = false;
   document.body.classList.add('modal-open');
   showZapret2DisabledBanner = false;
   setZapretError('');
@@ -826,8 +829,9 @@ function showZapretModal() {
 }
 
 function hideZapretModal() {
-  if (!zapretOverlay) return;
-  zapretOverlay.hidden = true;
+  const overlay = zapretOverlay || document.getElementById('zapret-overlay');
+  if (!overlay) return;
+  overlay.hidden = true;
   document.body.classList.remove('modal-open');
   showZapret2DisabledBanner = false;
 }
@@ -1000,7 +1004,6 @@ function initZapretUi() {
       renderOverview(zapretData);
     }
     setZapretStatus('История очищена', 'success');
-    setTimeout(() => setZapretStatus(''), 2000);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -1037,7 +1040,6 @@ function initZapretUi() {
       renderOverview(zapretData);
     }
     setZapretStatus('Результаты удалены', 'success');
-    setTimeout(() => setZapretStatus(''), 2000);
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -1059,8 +1061,6 @@ function initZapretUi() {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initZapretUi);
-} else {
-  initZapretUi();
-}
+// Скрипты подключаются через document.write в конце body — DOM уже готов.
+// Как app.js: не ждём DOMContentLoaded, иначе обработчики могут не повеситься.
+initZapretUi();

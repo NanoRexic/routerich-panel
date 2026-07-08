@@ -3,6 +3,8 @@
 (function () {
   const MAX_HISTORY = 80;
   const MAX_TOASTS = 5;
+  const MOBILE_MAX_TOASTS = 1;
+  const MOBILE_MQ = '(max-width: 600px)';
   const DEFAULT_DURATION = {
     info: 7000,
     success: 6000,
@@ -151,6 +153,16 @@
     if (id) dismiss(id);
   }
 
+  function dismissAllByGroup(group) {
+    if (!group) return;
+    const ids = [];
+    activeToasts.forEach((rec, id) => {
+      if (rec.group === group) ids.push(id);
+    });
+    ids.forEach(dismiss);
+    groupToId.delete(group);
+  }
+
   function clearToasts() {
     Array.from(activeToasts.keys()).forEach(dismiss);
   }
@@ -191,9 +203,17 @@
     return el;
   }
 
+  function getToastLimit() {
+    try {
+      return window.matchMedia(MOBILE_MQ).matches ? MOBILE_MAX_TOASTS : MAX_TOASTS;
+    } catch (_) {
+      return MAX_TOASTS;
+    }
+  }
+
   function mountToast(entry) {
     if (!toastHost) return null;
-    while (activeToasts.size >= MAX_TOASTS) {
+    while (activeToasts.size >= getToastLimit()) {
       const oldest = toastHost.lastElementChild;
       if (!oldest || !oldest.dataset.id) break;
       dismiss(oldest.dataset.id);
@@ -213,6 +233,7 @@
 
     const type = opts.type || 'info';
     const group = opts.group || '';
+    const stack = !!opts.stack;
     const id = opts.id || ('n-' + Date.now() + '-' + Math.random().toString(36).slice(2));
     const duration = resolveDuration(type, opts.duration, opts.persistent);
     const entry = {
@@ -223,18 +244,20 @@
       message: message,
       group: group,
       duration: duration,
+      toastOnly: !!opts.toastOnly,
       ts: Date.now(),
       read: centerOpen
     };
 
-    if (group && groupToId.has(group)) {
+    const mobileSingle = getToastLimit() === 1;
+    if (group && groupToId.has(group) && !stack && !mobileSingle) {
       return update(groupToId.get(group), opts);
     }
 
     if (group) groupToId.set(group, id);
 
     mountToast(entry);
-    pushHistory(entry);
+    if (!entry.toastOnly) pushHistory(entry);
     return id;
   }
 
@@ -340,6 +363,7 @@
     update: update,
     dismiss: dismiss,
     dismissByGroup: dismissByGroup,
+    dismissAllByGroup: dismissAllByGroup,
     clearToasts: clearToasts,
     clearHistory: clearHistory,
     info: (message, opts) => show(Object.assign({}, opts || {}, { message: message, type: 'info' })),
