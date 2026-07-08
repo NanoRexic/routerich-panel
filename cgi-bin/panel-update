@@ -54,11 +54,10 @@ _fetch_once() {
 fetch() {
 	_fetch_once "$@" && return 0
 	[ "$_ZB_FALLBACK_TRIED" = "1" ] && return 1
-	if command -v apply_zeroblock_github_fallback >/dev/null 2>&1; then
-		if apply_zeroblock_github_fallback; then
-			_ZB_FALLBACK_TRIED=1
-			_fetch_once "$@" && return 0
-		fi
+	if command -v apply_github_access_fallback >/dev/null 2>&1; then
+		apply_github_access_fallback
+		_ZB_FALLBACK_TRIED=1
+		_fetch_once "$@" && return 0
 	fi
 	return 1
 }

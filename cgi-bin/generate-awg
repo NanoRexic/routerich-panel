@@ -163,30 +163,29 @@ warpgen_fetch_one() {
 	_warpgen_curl_once "$url" "$origin" "$referer" && return 0
 
 	[ "$_ZB_FALLBACK_TRIED" = "1" ] && return 1
-	if command -v apply_zeroblock_github_fallback >/dev/null 2>&1; then
-		if apply_zeroblock_github_fallback; then
-			_ZB_FALLBACK_TRIED=1
-			_warpgen_curl_once "$url" "$origin" "$referer" && return 0
-		fi
+	if command -v apply_github_access_fallback >/dev/null 2>&1; then
+		apply_github_access_fallback
+		_ZB_FALLBACK_TRIED=1
+		_warpgen_curl_once "$url" "$origin" "$referer" && return 0
 	fi
 	return 1
 }
 
 warpgen_fetch_json() {
 	if json_body=$(warpgen_fetch_one \
-		'https://www.warp-generator.workers.dev' \
-		'https://warp-generator.github.io' \
-		'https://warp-generator.github.io/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp-generator.github.io'
+		'https://warp-generator-config.vercel.app/api/warp-data' \
+		'https://warp-generator-config.vercel.app' \
+		'https://warp-generator-config.vercel.app/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-generator-config.vercel.app'
 		printf '%s' "$json_body"
 		return 0
 	fi
 
 	if json_body=$(warpgen_fetch_one \
-		'https://warp-generator-config.vercel.app/api/warp-data' \
-		'https://warp-generator-config.vercel.app' \
-		'https://warp-generator-config.vercel.app/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp-generator-config.vercel.app'
+		'https://www.warp-generator.workers.dev' \
+		'https://warp-generator.github.io' \
+		'https://warp-generator.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-generator.github.io'
 		printf '%s' "$json_body"
 		return 0
 	fi
