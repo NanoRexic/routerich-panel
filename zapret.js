@@ -2,8 +2,8 @@
 
 const zapretOverlay = document.getElementById('zapret-overlay');
 const zapretError = document.getElementById('zapret-error');
-const zapretStatus = document.getElementById('zapret-status');
 const zapretTabs = document.querySelectorAll('.zapret-tab');
+const notify = () => window.RouteRichNotify;
 const zapretPanels = document.querySelectorAll('.zapret-panel');
 const youtubeSelect = document.getElementById('zapret-youtube-select');
 const discordSelect = document.getElementById('zapret-discord-select');
@@ -31,22 +31,24 @@ const PANEL_TEST_MODE_LABELS = {
 };
 
 function setZapretError(msg) {
-  if (!msg) {
-    zapretError.hidden = true;
-    return;
-  }
-  zapretError.textContent = msg;
-  zapretError.hidden = false;
+  zapretError.hidden = true;
+  if (!msg) return;
+  notify()?.error(msg, { source: 'Zapret', title: 'Ошибка' });
 }
 
 function setZapretStatus(msg, type) {
+  const n = notify();
+  if (!n) return;
   if (!msg) {
-    zapretStatus.hidden = true;
+    n.dismissByGroup('zapret');
     return;
   }
-  zapretStatus.hidden = false;
-  zapretStatus.className = 'zapret-status ' + (type || 'info');
-  zapretStatus.textContent = msg;
+  n.show({
+    message: msg,
+    type: type || 'info',
+    source: 'Zapret',
+    group: 'zapret'
+  });
 }
 
 function badge(on, label) {

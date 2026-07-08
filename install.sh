@@ -104,6 +104,7 @@ else
 	deploy_file "lib/zapret-headless.sh" "/etc/routerich-panel/zapret-headless.sh" "755"
 	deploy_file "lib/network-fallback.sh" "/etc/routerich-panel/network-fallback.sh" "755"
 	deploy_file "index.html" "/www/routerich-panel/index.html" "644"
+	deploy_file "notifications.js" "/www/routerich-panel/notifications.js" "644"
 	deploy_file "app.js" "/www/routerich-panel/app.js" "644"
 	deploy_file "shortcut.js" "/www/routerich-panel/shortcut.js" "644"
 	deploy_file "zapret.js" "/www/routerich-panel/zapret.js" "644"

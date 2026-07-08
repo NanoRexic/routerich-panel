@@ -3,12 +3,10 @@
 const overlay = document.getElementById('modal-overlay');
 const configText = document.getElementById('config-text');
 const modalError = document.getElementById('modal-error');
-const modalStatus = document.getElementById('modal-status');
 const savedPicker = document.getElementById('saved-picker');
 const savedSelect = document.getElementById('saved-select');
-const statusArea = document.getElementById('status-area');
-const statusMessage = document.getElementById('status-message');
 const dropZone = document.getElementById('drop-zone');
+const notify = () => window.RouteRichNotify;
 const fileInput = document.getElementById('file-input');
 const awgIfacePicker = document.getElementById('awg-iface-picker');
 const awgIfaceSelect = document.getElementById('awg-iface-select');
@@ -17,23 +15,33 @@ let savedVariants = [];
 let awgInterfaces = [];
 
 function showStatus(message, type) {
-  statusArea.hidden = false;
-  statusArea.className = 'status ' + type;
-  statusMessage.textContent = message;
+  const n = notify();
+  if (!n || !message) return;
+  n.show({
+    message: message,
+    type: type || 'info',
+    source: 'Панель',
+    group: 'panel'
+  });
 }
 
 function hideStatus() {
-  statusArea.hidden = true;
+  notify()?.dismissByGroup('panel');
 }
 
 function showModalStatus(message, type) {
-  modalStatus.hidden = false;
-  modalStatus.className = 'modal-status ' + (type || 'info');
-  modalStatus.textContent = message;
+  const n = notify();
+  if (!n || !message) return;
+  n.show({
+    message: message,
+    type: type || 'info',
+    source: 'AmneziaWG',
+    group: 'awg'
+  });
 }
 
 function hideModalStatus() {
-  modalStatus.hidden = true;
+  notify()?.dismissByGroup('awg');
 }
 
 function clearConfigText() {
@@ -209,12 +217,14 @@ function applyGeneratedVariants(data) {
   modalError.hidden = true;
 
   const count = data.variants.length;
-  showModalStatus(
-    'Сгенерировано ' + count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') +
-    '. Выберите вариант в списке или отредактируйте текст.',
-    'success'
-  );
-  showStatus('Конфиги сохранены на роутере. Выберите вариант и нажмите «Импортировать».', 'info');
+  hideModalStatus();
+  notify()?.show({
+    source: 'AmneziaWG',
+    title: 'Конфиги сгенерированы',
+    message: 'Сохранено ' + count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') +
+      ' на роутере. Выберите вариант в списке и нажмите «Импортировать».',
+    type: 'success'
+  });
 }
 
 const operaProxyMenuItem = document.getElementById('menu-item-opera-proxy');
@@ -250,11 +260,7 @@ async function refreshOperaProxyStatus() {
 
 if (operaProxyBtn) {
   operaProxyBtn.addEventListener('click', async () => {
-    hideStatus();
-    showStatus(
-      'Проверка Opera-Proxy… Обновление пакета, тест http://127.0.0.1:18080, при необходимости кастомный fix.',
-      'info'
-    );
+    showStatus('Проверка Opera-Proxy… Обновление пакета, тест http://127.0.0.1:18080, при необходимости кастомный fix.', 'info');
     operaProxyBtn.disabled = true;
 
     try {
@@ -265,13 +271,16 @@ if (operaProxyBtn) {
         if (d.opera_proxy_version) msg += ' Версия: ' + d.opera_proxy_version + '.';
         if (d.http_proxy) msg += ' Прокси: ' + d.http_proxy + '.';
         if (d.custom_fix_applied === false) msg += ' Кастомный init не потребовался.';
-        showStatus(msg, 'success');
+        hideStatus();
+        notify()?.success(msg, { source: 'Opera-Proxy', title: 'Прокси настроен' });
         setOperaProxyVisible(false);
       } else {
-        showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+        hideStatus();
+        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Opera-Proxy' });
       }
     } catch (err) {
-      showStatus('Ошибка сети: ' + err.message, 'error');
+      hideStatus();
+      notify()?.error('Ошибка сети: ' + err.message, { source: 'Opera-Proxy' });
     } finally {
       operaProxyBtn.disabled = false;
     }
@@ -370,21 +379,23 @@ if (panelUpdateBtn) {
       return;
     }
 
-    hideStatus();
     showStatus('Скачивание обновления с GitHub… Подождите до 2 минут.', 'info');
     panelUpdateBtn.disabled = true;
 
     try {
       const data = await apiPost('panel-update', '');
       if (data.ok) {
-        showStatus((data.message || 'Панель обновлена.') + ' Перезагрузка…', 'success');
+        hideStatus();
+        notify()?.success((data.message || 'Панель обновлена.') + ' Перезагрузка…', { source: 'Обновление' });
         await clearPanelCacheAndReload();
       } else {
-        showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+        hideStatus();
+        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Обновление' });
         panelUpdateBtn.disabled = false;
       }
     } catch (err) {
-      showStatus('Ошибка сети: ' + err.message, 'error');
+      hideStatus();
+      notify()?.error('Ошибка сети: ' + err.message, { source: 'Обновление' });
       panelUpdateBtn.disabled = false;
     }
   });
@@ -405,17 +416,19 @@ savedSelect.addEventListener('change', () => {
 
 document.getElementById('btn-reboot').addEventListener('click', async () => {
   if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
-  hideStatus();
-  showStatus('Отправка команды перезагрузки...', 'info');
+  showStatus('Отправка команды перезагрузки…', 'info');
   try {
     const data = await apiPost('reboot', '');
     if (data.ok) {
-      showStatus('Роутер перезагружается. Подождите 1–2 минуты.', 'success');
+      hideStatus();
+      notify()?.success('Роутер перезагружается. Подождите 1–2 минуты.', { source: 'Перезагрузка', title: 'Команда отправлена' });
     } else {
-      showStatus('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+      hideStatus();
+      notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Перезагрузка' });
     }
   } catch (err) {
-    showStatus('Роутер перезагружается (соединение прервано).', 'success');
+    hideStatus();
+    notify()?.success('Роутер перезагружается (соединение прервано).', { source: 'Перезагрузка', title: 'Команда отправлена' });
   }
 });
 
@@ -465,7 +478,10 @@ document.getElementById('btn-import').addEventListener('click', async () => {
     if (data.ok) {
       const appliedIface = (data.data && data.data.interface) || iface;
       hideModal();
-      showStatus('Конфигурация AmneziaWG (' + appliedIface + ') успешно обновлена.', 'success');
+      notify()?.success('Конфигурация AmneziaWG (' + appliedIface + ') успешно обновлена.', {
+        source: 'AmneziaWG',
+        title: 'Импорт завершён'
+      });
     } else {
       showModalError(data.error || 'Ошибка импорта');
     }

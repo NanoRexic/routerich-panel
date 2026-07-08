@@ -147,15 +147,13 @@ function hideShortcutModal() {
 }
 
 function showActionStatus(msg, type) {
-  let el = shortcutBody.querySelector('.shortcut-status');
-  if (!el) {
-    el = document.createElement('p');
-    el.className = 'shortcut-status';
-    el.setAttribute('role', 'status');
-    shortcutBody.appendChild(el);
-  }
-  el.className = 'shortcut-status ' + (type || 'info');
-  el.textContent = msg;
+  const n = window.RouteRichNotify;
+  if (!n || !msg) return;
+  n.show({
+    message: msg,
+    type: type || 'info',
+    source: 'Ярлык'
+  });
 }
 
 function downloadDesktopShortcut() {
