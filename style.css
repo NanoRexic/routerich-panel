@@ -1029,6 +1029,11 @@ body.modal-open {
   margin-bottom: 12px;
 }
 
+.zp-section-hint {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
 .zp-badges {
   display: flex;
   flex-wrap: wrap;
