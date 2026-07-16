@@ -6,6 +6,8 @@ ZAPRET_MANAGER_VERSION="9.6"; STR_VERSION_AUTOINSTALL="v7"
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null | cut -d/ -f1)
 DOMAINS="youtube.com rr1---sn-gvnuxaxjvh-jx3z.googlevideo.com rr1---sn-gvnuxaxjvh-jx3l.googlevideo.com rr1---sn-gvnuxaxjvh-jx3s.googlevideo.com"
 PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"; PORTS_TCP="2802,2302,2502,6000-8000,25565,27015-27030,27036-27037,50001,60442"
+MOONLIGHT_FLAG="/etc/routerich-panel/moonlight-bypass"; MOONLIGHT_UDP_WIDE="19345-49999"; MOONLIGHT_UDP_SPLIT="19345-47997,48011-49999"
+MOONLIGHT_TCP_WIDE="6000-8000"
 GREEN="\033[1;32m"; RED="\033[1;31m"; CYAN="\033[1;36m"; YELLOW="\033[1;33m"; MAGENTA="\033[1;35m"; BLUE="\033[0;34m"; NC="\033[0m"; DGRAY="\033[38;5;244m"
 CONF="/etc/config/zapret"; CUSTOM_DIR="/opt/zapret/init.d/openwrt/custom.d/"; HOSTLIST_FILE="/opt/zapret/ipset/zapret-hosts-user.txt"
 STR_URL="https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/ListStrYou"
@@ -591,13 +593,85 @@ echo -ne "${CYAN}6) $FIN_TXT\n${CYAN}7) ${GREEN}Выбрать и установ
 if wget -q -U "Mozilla/5.0" -O "$CUSTOM_DIR/50-script.sh" "$URL"; then [ "$NO_PAUSE" != "1" ] && echo; echo -e "${MAGENTA}Устанавливаем скрипт${NC}\n${GREEN}Скрипт ${NC}$SELECTED${GREEN} успешно установлен!${NC}\n"; else echo -e "\n${RED}Ошибка при скачивании скрипта!${NC}\n"; PAUSE; continue; fi
 sed -i "/DISABLE_CUSTOM/s/'1'/'0'/" $CONF; ZAPRET_RESTART; [ "$NO_PAUSE" != "1" ] && PAUSE; [ "$NO_PAUSE" = "1" ] && break; done }
 # ==========================================
+# Moonlight / Sunshine (Apollo) — исключение портов стриминга
+# UDP 47998–48000 в 19345-49999; TCP 47984, 47989, 48010 в 6000-8000
+# NFQWS_PORTS не меняем (nftables); в NFQWS_OPT — split UDP + несколько --new для TCP
+# ==========================================
+moonlight_bypass_active() {
+	[ -f "$MOONLIGHT_FLAG" ] && return 0
+	grep -q "^--filter-udp=.*${MOONLIGHT_UDP_SPLIT}" "$CONF" 2>/dev/null
+}
+
+_ports_udp_effective() {
+	if moonlight_bypass_active; then
+		printf '%s' "88,1024-2407,2409-4499,4502-19293,19345-47997,48011-49999,50101-65535"
+	else
+		printf '%s' "$PORTS_UDP"
+	fi
+}
+
+moonlight_restore_nfq_ports() {
+	sed -i "/option NFQWS_PORTS_UDP/s/${MOONLIGHT_UDP_SPLIT}/${MOONLIGHT_UDP_WIDE}/g" "$CONF"
+}
+
+moonlight_refresh_gv_strategy() {
+	local gv="" i LAST_QUOTE Gv_LINE STRATEGY
+	for i in 1 2 3 4; do grep -q "^#Gv$i" "$CONF" && gv="$i"; done
+	[ -n "$gv" ] || return 0
+	LAST_QUOTE=$(grep -n "^'\$" "$CONF" | tail -n1 | cut -d: -f1)
+	Gv_LINE=$(grep -n "^#Gv" "$CONF" | tail -n1 | cut -d: -f1)
+	[ -n "$Gv_LINE" ] && [ -n "$LAST_QUOTE" ] && sed -i "${Gv_LINE},${LAST_QUOTE}d" "$CONF"
+	if [ "$gv" -eq 1 ]; then STRATEGY="$(strategy_Gv1; strategy_TCP_common)"; else STRATEGY="$(strategy_Gv "$gv"; strategy_TCP_common)"; fi
+	echo "$STRATEGY" | sed '/^$/d' >> "$CONF"
+	echo "'" >> "$CONF"
+}
+
+moonlight_apply_split() {
+	mkdir -p "$(dirname "$MOONLIGHT_FLAG")"
+	moonlight_restore_nfq_ports
+	touch "$MOONLIGHT_FLAG"
+	moonlight_refresh_gv_strategy
+}
+
+moonlight_remove_split() {
+	moonlight_restore_nfq_ports
+	rm -f "$MOONLIGHT_FLAG"
+	moonlight_refresh_gv_strategy
+}
+
+toggle_moonlight_bypass() {
+	[ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return 1; }
+	if moonlight_bypass_active; then
+		echo -e "\n${MAGENTA}Выключаем исключение Moonlight/Sunshine${NC}"
+		moonlight_remove_split
+	else
+		echo -e "\n${MAGENTA}Включаем исключение Moonlight/Sunshine${NC}\n${CYAN}Порты 47984–48010 не обрабатываются Zapret${NC}"
+		moonlight_apply_split
+	fi
+	ZAPRET_RESTART
+	echo -e "${GREEN}Исключение Moonlight/Sunshine обновлено!${NC}\n"
+	PAUSE
+	return 0
+}
+
+# ==========================================
 # FIX GAME
 # ==========================================
 remove_ports_if_present() { local OPTION="$1"; local PORTS="$2"; for p in $(echo "$PORTS" | tr ',' ' '); do sed -i "\#option $OPTION '#s#,$p##g" "$CONF"; done; sed -i "\#option $OPTION '#s#,,#,#g; s#,\$##" "$CONF"; }
 add_ports_if_missing() { local OPTION="$1"; local PORTS="$2"; for p in $(echo "$PORTS" | tr ',' ' '); do grep -q "option $OPTION '.*\b$p\b" "$CONF" || sed -i "\#option $OPTION '#s#'\$#,$p'#" "$CONF"; done; }
-strategy_TCP_common() { printf "%s\n" "--new" "--filter-tcp=$PORTS_TCP" "--dpi-desync-any-protocol=1" "--dpi-desync-cutoff=n5" "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=582" "--dpi-desync-split-pos=1" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
-strategy_Gv1() { printf "%s\n" "#Gv1" "--new" "--filter-udp=$PORTS_UDP" "--dpi-desync=fake" "--dpi-desync-cutoff=d2" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin"; }
-strategy_Gv() { local N="$1"; printf "%s\n" "#Gv$N" "--new" "--filter-udp=$PORTS_UDP" "--dpi-desync=fake" "--dpi-desync-repeats=10" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/quic_initial_www_google_com.bin" "--dpi-desync-cutoff=n$N"; }
+_strategy_tcp_block() { local TCP="$1"; printf "%s\n" "--new" "--filter-tcp=$TCP" "--dpi-desync-any-protocol=1" "--dpi-desync-cutoff=n5" "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=582" "--dpi-desync-split-pos=1" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
+strategy_TCP_common() {
+	if moonlight_bypass_active; then
+		_strategy_tcp_block "2802,2302,2502,6000-47983"
+		_strategy_tcp_block "47985-47988"
+		_strategy_tcp_block "47990-48009"
+		_strategy_tcp_block "25565,27015-27030,27036-27037,50001,60442"
+	else
+		_strategy_tcp_block "$PORTS_TCP"
+	fi
+}
+strategy_Gv1() { local UDP="$(_ports_udp_effective)"; printf "%s\n" "#Gv1" "--new" "--filter-udp=$UDP" "--dpi-desync=fake" "--dpi-desync-cutoff=d2" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin"; }
+strategy_Gv() { local N="$1"; local UDP="$(_ports_udp_effective)"; printf "%s\n" "#Gv$N" "--new" "--filter-udp=$UDP" "--dpi-desync=fake" "--dpi-desync-repeats=10" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/quic_initial_www_google_com.bin" "--dpi-desync-cutoff=n$N"; }
 fix_GAME() { local NO_PAUSE=$1; [ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return; }; local CURRENT_GAME=""; for i in 1 2 3 4; do grep -q "^#Gv$i" "$CONF" && CURRENT_GAME="Gv$i"; done
 if [ -n "$NO_PAUSE" ]; then GAME_CHOICE="$NO_PAUSE"; else echo -e "\n${MAGENTA}Выберите стратегию для игр${NC}"; for i in $(seq 1 4); do if [ "$CURRENT_GAME" = "Gv$i" ]; then echo -e "${CYAN}$i) ${GREEN}Удалить ${NC}Gv$i"; else echo -e "${CYAN}$i) ${GREEN}Установить ${NC}Gv$i"; fi; done
 echo -e "${CYAN}Enter) ${GREEN}Выход в меню стратегий"; echo -en "\n${YELLOW}Выберите пункт: ${NC}"; read GAME_CHOICE; fi; case "$GAME_CHOICE" in 1|2|3|4) ;; *) return ;; esac; LAST_QUOTE=$(grep -n "^'\$" "$CONF" | tail -n1 | cut -d: -f1)

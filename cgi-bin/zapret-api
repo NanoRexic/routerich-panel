@@ -266,6 +266,7 @@ api_status() {
 		--argjson zapret2 "$zapret2_json" \
 		--argjson uci_initialized "$uci_init_ran" \
 		--argjson uci_ready "$uci_ready" \
+		--argjson moonlight_bypass "$(moonlight_bypass_active && echo 1 || echo 0)" \
 		'{
 			manager_version: $manager_version,
 			installed: ($installed == 1),
@@ -290,6 +291,7 @@ api_status() {
 			doh: $doh,
 			quic_blocked: ($quic == 1),
 			ipv6_enabled: ($ipv6 == 1),
+			moonlight_bypass: ($moonlight_bypass == 1),
 			backup: {exists: ($backup == 1), date: $backup_date},
 			test_history: {
 				versions: ($test_versions == 1), flowseal: ($test_flowseal == 1),
@@ -495,6 +497,7 @@ api_apply() {
 				quic) zapret_exec toggle_quic ;;
 				ipv6) zapret_exec toggle_ipv6 ;;
 				finland) zapret_exec toggle_finland_hosts ;;
+				moonlight) zapret_exec toggle_moonlight_bypass || { json_error "Не удалось переключить исключение Moonlight"; return; } ;;
 				*)
 					json_error "Неизвестный переключатель"; return ;;
 			esac

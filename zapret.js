@@ -207,6 +207,7 @@ function renderOverview(d) {
     badge(d.strategy.udp443, 'udp443') +
     badge(d.quic_blocked, 'QUIC') +
     badge(d.ipv6_enabled, 'IPv6') +
+    badge(d.moonlight_bypass, 'Moonlight') +
     badge(d.finland_ips, 'Finland') +
     '</div>' +
     (d.hosts_preset || extras.length
@@ -410,6 +411,7 @@ function syncStrategyUI(d) {
     else if (key === 'udp443') on = s.udp443;
     else if (key === 'quic') on = d.quic_blocked;
     else if (key === 'ipv6') on = d.ipv6_enabled;
+    else if (key === 'moonlight') on = d.moonlight_bypass;
     else if (key === 'finland') on = d.finland_ips;
     btn.classList.toggle('active', !!on);
   });
