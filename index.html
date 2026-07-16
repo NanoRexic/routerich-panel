@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.0.39">
+  <meta name="routerich-version" content="1.0.40">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -262,9 +262,9 @@
               <button type="button" class="zp-toggle" data-toggle="udp443">udp443</button>
               <button type="button" class="zp-toggle" data-toggle="quic">QUIC</button>
               <button type="button" class="zp-toggle" data-toggle="ipv6">IPv6</button>
-              <button type="button" class="zp-toggle" data-toggle="moonlight" title="Не обрабатывать Zapret порты Moonlight/Sunshine (47984–48010)">Moonlight</button>
+              <button type="button" class="zp-toggle" data-toggle="moonlight" title="Passthrough-заглушка для портов Moonlight/Sunshine (47984–48010)">Moonlight</button>
             </div>
-            <p class="zp-muted zp-section-hint">Moonlight — для удалённого стрима через Apollo/Sunshine. Включите, если при игровой стратегии (Gv) рвётся подключение.</p>
+            <p class="zp-muted zp-section-hint">Moonlight — passthrough в начале каскада NFQWS_OPT для Apollo/Sunshine. Пакеты на портах стриминга не получают DPI-обработку.</p>
           </div>
         </section>
 
