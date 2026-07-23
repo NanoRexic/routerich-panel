@@ -73,7 +73,11 @@ ensure_github_hosts() {
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	return 0
 }
-ZAPRET_RESTART () { chmod +x /opt/zapret/sync_config.sh; /opt/zapret/sync_config.sh; /etc/init.d/zapret restart >/dev/null 2>&1; sleep 1; }
+ZAPRET_RESTART () {
+	# Смена NFQWS_OPT (стратегия и т.п.) сносит #Moonlight — восстанавливаем, если пользователь включил модификатор
+	[ -f "$MOONLIGHT_FLAG" ] && moonlight_insert_stub
+	chmod +x /opt/zapret/sync_config.sh; /opt/zapret/sync_config.sh; /etc/init.d/zapret restart >/dev/null 2>&1; sleep 1
+}
 ZAPRET_UCI_INIT_RAN=0
 zapret_uci_config_ready() {
 	command -v uci >/dev/null 2>&1 || return 1
@@ -595,10 +599,15 @@ sed -i "/DISABLE_CUSTOM/s/'1'/'0'/" $CONF; ZAPRET_RESTART; [ "$NO_PAUSE" != "1" 
 # Moonlight / Sunshine (Apollo) — passthrough-заглушки в начале NFQWS_OPT
 # nfqws обрабатывает профили каскадно: первый match останавливает цепочку.
 # Заглушки без --dpi-desync пропускают пакеты без изменений (до Gv/Discord и т.д.).
+# Флаг MOONLIGHT_FLAG = желание пользователя; #Moonlight в CONF = фактическое состояние.
 # ==========================================
 moonlight_bypass_active() {
-	[ -f "$MOONLIGHT_FLAG" ] && return 0
+	# Только реальный блок в конфиге — для UI и API (флаг может остаться после смены стратегии)
 	grep -q '^#Moonlight$' "$CONF" 2>/dev/null
+}
+
+moonlight_wanted() {
+	[ -f "$MOONLIGHT_FLAG" ]
 }
 
 strategy_moonlight_stub() {
@@ -647,7 +656,8 @@ moonlight_remove_split() {
 
 toggle_moonlight_bypass() {
 	[ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return 1; }
-	if moonlight_bypass_active; then
+	# Выключаем, если флаг или блок в конфиге (рассинхрон после смены стратегии)
+	if moonlight_wanted || moonlight_bypass_active; then
 		echo -e "\n${MAGENTA}Выключаем исключение Moonlight/Sunshine${NC}"
 		moonlight_remove_split
 	else
