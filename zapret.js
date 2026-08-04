@@ -34,17 +34,25 @@ const PANEL_TEST_MODE_LABELS = {
 const ZAPRET_STATUS_VISIBLE_MS = 4500;
 
 function setZapretError(msg) {
+  // Старая плашка #zapret-error больше не используется — только центр уведомлений
+  if (zapretError) {
+    zapretError.hidden = true;
+    zapretError.textContent = '';
+  }
+  const n = zapretNotify();
+  if (!n) return;
   if (!msg) {
-    if (zapretError) {
-      zapretError.hidden = true;
-      zapretError.textContent = '';
-    }
+    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret-error');
+    else if (n.dismissByGroup) n.dismissByGroup('zapret-error');
     return;
   }
-  if (zapretError) {
-    zapretError.textContent = msg;
-    zapretError.hidden = false;
-  }
+  n.show({
+    message: msg,
+    type: 'error',
+    source: 'Zapret',
+    title: 'Ошибка',
+    group: 'zapret-error'
+  });
 }
 
 function setZapretStatus(msg, type) {

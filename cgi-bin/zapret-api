@@ -410,7 +410,8 @@ api_youtube_list() {
 	else
 		json_error "На роутере нет curl/wget для загрузки списка"; return
 	fi
-	awk 'BEGIN{printf "["} /^Yv[0-9]+/{ if (n++) printf ","; printf "\"%s\"", $0 } END{printf "]\n"}' "$TMP_LIST"
+	# StressOzz: files/TestStrYoutube — заголовки #Yv01; старый ListStrYou — Yv01 без #
+	awk 'BEGIN{printf "["} /^(#)?Yv[0-9]+/{ if (n++) printf ","; name=$0; sub(/^#/,"",name); printf "\"%s\"", name } END{printf "]\n"}' "$TMP_LIST"
 }
 
 api_apply() {
@@ -430,8 +431,8 @@ api_apply() {
 			zapret_exec ZAPRET_RESTART
 			;;
 		base)
-			case "$value" in v[1-9]) zapret_exec install_strategy "$value" 1 || { json_error "Не удалось применить $value"; return; } ;; *)
-				json_error "Некорректная базовая стратегия"; return ;;
+			case "$value" in v[1-9]|v10) zapret_exec install_strategy "$value" 1 || { json_error "Не удалось применить $value"; return; } ;; *)
+				json_error "Некорректная базовая стратегия (v1–v10)"; return ;;
 			esac
 			;;
 		discord_dv)
@@ -459,14 +460,16 @@ api_apply() {
 			;;
 		youtube)
 			[ -n "$value" ] || { json_error "Укажите Yv-стратегию"; return; }
+			# value из UI: Yv01; в TestStrYoutube заголовок: #Yv01
+			value="${value#\#}"
 			mkdir -p "$TMP_SF"
 			curl -fsSL "$STR_URL" -o "$TMP_LIST" || { json_error "Не удалось скачать список"; return; }
 			SAVED_STR="$TMP_SF/selected_str"
 			> "$SAVED_STR"
 			FLAG=0
 			while IFS= read -r LINE; do
-				[ "$LINE" = "$value" ] && FLAG=1 && continue
-				case "$LINE" in Yv[0-9]*) FLAG=0 ;; esac
+				[ "$LINE" = "#$value" ] || [ "$LINE" = "$value" ] && FLAG=1 && continue
+				case "$LINE" in \#Yv[0-9]*|Yv[0-9]*) FLAG=0 ;; esac
 				[ "$FLAG" -eq 1 ] && printf '%b\n' "$LINE" >> "$SAVED_STR"
 			done < "$TMP_LIST"
 			[ -s "$SAVED_STR" ] || { json_error "Стратегия $value не найдена"; return; }

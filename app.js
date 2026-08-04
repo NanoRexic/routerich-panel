@@ -82,7 +82,7 @@ async function loadAwgInterfaces() {
     const data = await apiGet('import-awg?action=list');
     if (data.ok && data.interfaces && data.interfaces.length) {
       populateAwgIfaceSelect(data.interfaces, data.default);
-      modalError.hidden = true;
+      clearModalError();
       return;
     }
     populateAwgIfaceSelect([]);
@@ -95,7 +95,7 @@ async function loadAwgInterfaces() {
 
 function showModal() {
   clearConfigText();
-  modalError.hidden = true;
+  clearModalError();
   hideModalStatus();
   overlay.hidden = false;
   document.body.classList.add('modal-open');
@@ -108,9 +108,35 @@ function hideModal() {
   document.body.classList.remove('modal-open');
 }
 
+function clearModalError() {
+  if (modalError) {
+    modalError.hidden = true;
+    modalError.textContent = '';
+  }
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-error');
+  else if (n?.dismissByGroup) n.dismissByGroup('awg-error');
+}
+
 function showModalError(msg) {
-  modalError.textContent = msg;
-  modalError.hidden = false;
+  // Старая плашка #modal-error больше не используется — только центр уведомлений
+  if (modalError) {
+    modalError.hidden = true;
+    modalError.textContent = '';
+  }
+  if (!msg) {
+    clearModalError();
+    return;
+  }
+  const n = notify();
+  if (!n) return;
+  n.show({
+    message: msg,
+    type: 'error',
+    source: 'AmneziaWG',
+    title: 'Ошибка',
+    group: 'awg-error'
+  });
 }
 
 function isEmptyConfig(text) {
@@ -177,7 +203,7 @@ async function loadSavedVariant(id) {
   const cached = savedVariants.find((v) => v.id === id);
   if (cached && cached.config) {
     configText.value = cached.config.trim();
-    modalError.hidden = true;
+    clearModalError();
     return;
   }
 
@@ -185,7 +211,7 @@ async function loadSavedVariant(id) {
     const data = await apiGet('saved-awg?id=' + encodeURIComponent(id));
     if (data.ok && data.config) {
       configText.value = data.config.trim();
-      modalError.hidden = true;
+      clearModalError();
       const item = savedVariants.find((v) => v.id === id);
       if (item) item.config = data.config;
     } else {
@@ -214,7 +240,7 @@ function applyGeneratedVariants(data) {
 
   populateSavedSelect(data.variants, data.variants[0].id);
   configText.value = (data.variants[0].config || '').trim();
-  modalError.hidden = true;
+  clearModalError();
 
   const count = data.variants.length;
   hideModalStatus();
@@ -433,7 +459,7 @@ document.getElementById('btn-reboot').addEventListener('click', async () => {
 });
 
 document.getElementById('btn-generate').addEventListener('click', async () => {
-  modalError.hidden = true;
+  clearModalError();
   clearConfigText();
   savedSelect.value = '';
   const btn = document.getElementById('btn-generate');
@@ -469,7 +495,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
     showModalError('Вставьте, выберите или сгенерируйте конфигурацию .conf');
     return;
   }
-  modalError.hidden = true;
+  clearModalError();
   const btn = document.getElementById('btn-import');
   btn.disabled = true;
   btn.textContent = 'Импорт...';
@@ -500,7 +526,7 @@ fileInput.addEventListener('change', (e) => {
   reader.onload = (ev) => {
     configText.value = ev.target.result.trim();
     savedSelect.value = '';
-    modalError.hidden = true;
+    clearModalError();
     hideModalStatus();
   };
   reader.readAsText(file);
@@ -525,7 +551,7 @@ dropZone.addEventListener('drop', (e) => {
   reader.onload = (ev) => {
     configText.value = ev.target.result.trim();
     savedSelect.value = '';
-    modalError.hidden = true;
+    clearModalError();
     hideModalStatus();
   };
   reader.readAsText(file);
