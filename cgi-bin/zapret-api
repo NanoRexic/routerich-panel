@@ -402,15 +402,10 @@ api_test_run() {
 }
 
 api_youtube_list() {
+	# Возвращает JSON-массив в stdout; 0 — ok, 1 — ошибка (без json_error — caller сам оборачивает)
 	mkdir -p "$TMP_SF"
-	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL "$STR_URL" -o "$TMP_LIST" || { json_error "Не удалось скачать список YouTube-стратегий"; return; }
-	elif command -v wget >/dev/null 2>&1; then
-		wget -q -U "Mozilla/5.0" -O "$TMP_LIST" "$STR_URL" || { json_error "Не удалось скачать список YouTube-стратегий"; return; }
-	else
-		json_error "На роутере нет curl/wget для загрузки списка"; return
-	fi
-	# StressOzz: files/TestStrYoutube — заголовки #Yv01; старый ListStrYou — Yv01 без #
+	fetch_youtube_list "$TMP_LIST" || return 1
+	# StrYoutube / TestStrYoutube: #Yv01; старый ListStrYou: Yv01
 	awk 'BEGIN{printf "["} /^(#)?Yv[0-9]+/{ if (n++) printf ","; name=$0; sub(/^#/,"",name); printf "\"%s\"", name } END{printf "]\n"}' "$TMP_LIST"
 }
 
@@ -463,7 +458,7 @@ api_apply() {
 			# value из UI: Yv01; в TestStrYoutube заголовок: #Yv01
 			value="${value#\#}"
 			mkdir -p "$TMP_SF"
-			curl -fsSL "$STR_URL" -o "$TMP_LIST" || { json_error "Не удалось скачать список"; return; }
+			fetch_youtube_list "$TMP_LIST" || { json_error "Не удалось скачать список"; return; }
 			SAVED_STR="$TMP_SF/selected_str"
 			> "$SAVED_STR"
 			FLAG=0
@@ -589,7 +584,9 @@ case "$REQUEST_METHOD" in
 	GET)
 		case "$action" in
 			status|"") api_status | json_ok ;;
-			youtube-list) api_youtube_list | json_ok ;;
+			youtube-list)
+				yt_list=$(api_youtube_list) && printf '%s' "$yt_list" | json_ok || json_error "Не удалось скачать список YouTube-стратегий"
+				;;
 			test-results) api_test_results | json_ok ;;
 			test-history) list_panel_tests_api | json_ok ;;
 			test-history-detail)
