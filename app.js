@@ -345,13 +345,19 @@ function getEmbeddedPanelVersion() {
 }
 
 function versionGt(a, b) {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
-    if (pa[i] > pb[i]) return true;
-    if (pa[i] < pb[i]) return false;
+    if ((pa[i] || 0) > (pb[i] || 0)) return true;
+    if ((pa[i] || 0) < (pb[i] || 0)) return false;
   }
   return false;
+}
+
+function versionMax(a, b) {
+  if (!a) return b || '';
+  if (!b) return a || '';
+  return versionGt(a, b) ? a : b;
 }
 
 function setPanelUpdateVisible(visible, info) {
@@ -391,18 +397,25 @@ async function refreshPanelUpdateStatus() {
   try {
     const res = await fetch('/cgi-bin/panel-update?_=' + Date.now(), {
       method: 'GET',
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
     });
     const data = await res.json().catch(() => ({ ok: false }));
     if (data.ok && data.data) {
-      if (data.data.update_available) {
-        const embedded = getEmbeddedPanelVersion();
-        const latest = data.data.latest || '';
-        if (embedded && !versionGt(latest, embedded)) {
-          setPanelUpdateVisible(false);
-          return;
-        }
-        setPanelUpdateVisible(true, data.data);
+      const embedded = getEmbeddedPanelVersion();
+      const serverCurrent = data.data.current || '';
+      const latest = data.data.latest || '';
+      // max(meta страницы, VERSION на роутере) — iOS часто кэширует одну сторону
+      const effectiveCurrent = versionMax(embedded, serverCurrent);
+      const needUpdate = !!(latest && versionGt(latest, effectiveCurrent));
+
+      if (needUpdate) {
+        setPanelUpdateVisible(true, {
+          current: effectiveCurrent || serverCurrent || '?',
+          latest: latest,
+          update_available: true,
+          remote_ok: data.data.remote_ok !== false
+        });
         return;
       }
       if (data.data.remote_ok === false && panelUpdateBtn) {

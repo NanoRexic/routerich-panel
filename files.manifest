@@ -22,6 +22,11 @@
     {"src": "style.css", "dst": "/www/routerich-panel/style.css", "mode": "644"},
     {"src": "sw.js", "dst": "/www/routerich-panel/sw.js", "mode": "644"},
     {"src": "icon.svg", "dst": "/www/routerich-panel/icon.svg", "mode": "644"},
+    {"src": "icon-192.png", "dst": "/www/routerich-panel/icon-192.png", "mode": "644"},
+    {"src": "icon-512.png", "dst": "/www/routerich-panel/icon-512.png", "mode": "644"},
+    {"src": "icon-192-solid.png", "dst": "/www/routerich-panel/icon-192-solid.png", "mode": "644"},
+    {"src": "icon-512-solid.png", "dst": "/www/routerich-panel/icon-512-solid.png", "mode": "644"},
+    {"src": "apple-touch-icon.png", "dst": "/www/routerich-panel/apple-touch-icon.png", "mode": "644"},
     {"src": "manifest.webmanifest", "dst": "/www/routerich-panel/manifest.webmanifest", "mode": "644"}
   ]
 }

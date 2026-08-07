@@ -69,7 +69,11 @@ body.modal-open {
 
 .logo {
   height: 36px;
-  width: auto;
+  width: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: transparent;
+  display: block;
 }
 
 .header h1 {
@@ -564,6 +568,8 @@ body.modal-open {
 
   .logo {
     height: 32px;
+    width: 32px;
+    object-fit: contain;
     flex-shrink: 0;
   }
 

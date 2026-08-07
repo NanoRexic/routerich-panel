@@ -1,9 +1,8 @@
 'use strict';
 
-const CACHE = 'routerich-panel-v1.2';
+const CACHE = 'routerich-panel-v1.2.1';
 const ASSETS = [
-  '/',
-  '/index.html',
+  // index.html не precache — всегда свежая версия с сервера
   '/style.css',
   '/notifications.js',
   '/app.js',
@@ -30,7 +29,21 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  // CGI и навигация/index — всегда с сети (иначе iOS держит старый meta version)
   if (url.pathname.startsWith('/cgi-bin/')) return;
+  const isNavigate = event.request.mode === 'navigate';
+  const isIndex =
+    url.pathname === '/' ||
+    url.pathname.endsWith('/') ||
+    url.pathname.endsWith('/index.html') ||
+    url.pathname.endsWith('index.html');
+
+  if (isNavigate || isIndex) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(event.request).then((res) => {
