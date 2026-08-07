@@ -14,34 +14,56 @@ const awgIfaceSelect = document.getElementById('awg-iface-select');
 let savedVariants = [];
 let awgInterfaces = [];
 
-function showStatus(message, type) {
+function showStatus(message, type, opts) {
   const n = notify();
   if (!n || !message) return;
+  opts = opts || {};
+  const t = type || 'info';
+  const progress = !!opts.progress;
   n.show({
     message: message,
-    type: type || 'info',
-    source: 'Панель',
-    group: 'panel'
+    type: t,
+    source: opts.source || 'Панель',
+    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'Панель')),
+    group: opts.group || 'panel-status',
+    stack: false,
+    toastOnly: true,
+    progress: progress,
+    persistent: progress,
+    duration: progress ? 0 : undefined
   });
 }
 
 function hideStatus() {
-  notify()?.dismissByGroup('panel');
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('panel-status');
+  else n?.dismissByGroup?.('panel-status');
 }
 
-function showModalStatus(message, type) {
+function showModalStatus(message, type, opts) {
   const n = notify();
   if (!n || !message) return;
+  opts = opts || {};
+  const t = type || 'info';
+  const progress = !!opts.progress;
   n.show({
     message: message,
-    type: type || 'info',
+    type: t,
     source: 'AmneziaWG',
-    group: 'awg'
+    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'AmneziaWG')),
+    group: 'awg-status',
+    stack: false,
+    toastOnly: true,
+    progress: progress,
+    persistent: progress,
+    duration: progress ? 0 : undefined
   });
 }
 
 function hideModalStatus() {
-  notify()?.dismissByGroup('awg');
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-status');
+  else n?.dismissByGroup?.('awg-status');
 }
 
 function clearConfigText() {
@@ -243,13 +265,12 @@ function applyGeneratedVariants(data) {
   clearModalError();
 
   const count = data.variants.length;
-  hideModalStatus();
   notify()?.show({
     source: 'AmneziaWG',
-    title: 'Конфиги сгенерированы',
-    message: 'Сохранено ' + count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') +
-      ' на роутере. Выберите вариант в списке и нажмите «Импортировать».',
-    type: 'success'
+    title: 'Сгенерировано',
+    message: count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') + ' — выберите и импортируйте',
+    type: 'success',
+    toastOnly: true
   });
 }
 
@@ -286,7 +307,7 @@ async function refreshOperaProxyStatus() {
 
 if (operaProxyBtn) {
   operaProxyBtn.addEventListener('click', async () => {
-    showStatus('Проверка Opera-Proxy… Обновление пакета, тест http://127.0.0.1:18080, при необходимости кастомный fix.', 'info');
+    showStatus('Opera-Proxy…', 'info', { title: 'Проверка', progress: true });
     operaProxyBtn.disabled = true;
 
     try {
@@ -405,7 +426,7 @@ if (panelUpdateBtn) {
       return;
     }
 
-    showStatus('Скачивание обновления с GitHub… Подождите до 2 минут.', 'info');
+    showStatus('GitHub (до 2 мин)…', 'info', { title: 'Обновление', progress: true });
     panelUpdateBtn.disabled = true;
 
     try {
@@ -442,7 +463,7 @@ savedSelect.addEventListener('change', () => {
 
 document.getElementById('btn-reboot').addEventListener('click', async () => {
   if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
-  showStatus('Отправка команды перезагрузки…', 'info');
+  showStatus('Команда reboot…', 'info', { title: 'Перезагрузка', progress: true });
   try {
     const data = await apiPost('reboot', '');
     if (data.ok) {
@@ -466,10 +487,11 @@ document.getElementById('btn-generate').addEventListener('click', async () => {
   const origText = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Генерация...';
-  showModalStatus('Запрос конфигурации WARP… Генерируем 3 варианта AWG 2.0.', 'info');
+  showModalStatus('3 варианта AWG…', 'info', { title: 'Генерация', progress: true });
   try {
     const data = await apiGet('generate-awg');
     if (data.ok && data.variants && data.variants.length) {
+      hideModalStatus();
       applyGeneratedVariants(data);
     } else {
       hideModalStatus();
@@ -499,19 +521,24 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   const btn = document.getElementById('btn-import');
   btn.disabled = true;
   btn.textContent = 'Импорт...';
+  showModalStatus(iface, 'info', { title: 'Импорт', progress: true });
   try {
     const data = await apiPost('import-awg', text, undefined, { iface: iface });
     if (data.ok) {
       const appliedIface = (data.data && data.data.interface) || iface;
+      hideModalStatus();
       hideModal();
-      notify()?.success('Конфигурация AmneziaWG (' + appliedIface + ') успешно обновлена.', {
+      notify()?.success(appliedIface, {
         source: 'AmneziaWG',
-        title: 'Импорт завершён'
+        title: 'Импортировано',
+        toastOnly: true
       });
     } else {
+      hideModalStatus();
       showModalError(data.error || 'Ошибка импорта');
     }
   } catch (err) {
+    hideModalStatus();
     showModalError('Ошибка сети: ' + err.message);
   } finally {
     btn.disabled = false;

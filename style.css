@@ -246,7 +246,7 @@ body.modal-open {
   border-radius: 12px;
   width: 100%;
   max-width: 560px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .modal-header {
@@ -1070,22 +1070,44 @@ body.modal-open {
   color: var(--text);
   font-size: 0.85rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.zp-toggle:hover {
-  border-color: var(--primary);
+/* Выключено → наведение зелёное (включение) */
+.zp-toggle:not(.active):hover {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--success);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.25);
 }
 
+/* Включено — спокойный зелёный active */
 .zp-toggle.active {
-  border-color: var(--primary);
-  background: rgba(77, 161, 192, 0.2);
-  color: var(--primary);
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.18);
+  color: var(--success);
+}
+
+/* Включено → наведение красное (выключение) */
+.zp-toggle.active:hover {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.3);
+}
+
+/* Деструктивные действия (сброс, очистка) — отдельно от toggle */
+.zp-toggle-danger:not(.active):hover {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+  box-shadow: none;
 }
 
 .zp-toggle-danger.active,
-.zp-toggle-danger:hover {
+.zp-toggle-danger.active:hover {
   border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.16);
   color: var(--danger);
 }
 
@@ -1118,9 +1140,13 @@ body.modal-open {
   align-items: stretch;
 }
 
+/* PC: компактный combobox; на телефоне — на всю ширину (см. media) */
 .zp-select-row .saved-select,
 .zp-youtube-row .saved-select {
-  flex: 1;
+  flex: 0 1 200px;
+  width: 200px;
+  max-width: 200px;
+  min-width: 140px;
 }
 
 .zp-test-domain-row,
@@ -1388,6 +1414,14 @@ body.modal-open {
     flex-direction: column;
   }
 
+  .zp-select-row .saved-select,
+  .zp-youtube-row .saved-select {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
   .zp-select-row .btn,
   .zp-youtube-row .btn {
     width: 100%;
@@ -1587,6 +1621,38 @@ body.modal-open {
 @keyframes notification-progress {
   from { transform: scaleX(1); }
   to { transform: scaleX(0); }
+}
+
+@keyframes notification-progress-busy {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+/* Неопределённый progress для долгих операций */
+.notification-toast-progress--busy {
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: none !important;
+  overflow: hidden;
+}
+
+.notification-toast-progress--busy::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, transparent, #0078d4, #4da1c0, transparent);
+  animation: notification-progress-busy 1.15s ease-in-out infinite;
+}
+
+.notification-toast--success .notification-toast-progress--busy::after {
+  background: linear-gradient(90deg, transparent, #107c10, #10b981, transparent);
+}
+
+.notification-toast--busy {
+  border-color: rgba(77, 161, 192, 0.45);
 }
 
 .notification-center-backdrop {

@@ -174,17 +174,47 @@
     if (rec.timer) window.clearTimeout(rec.timer);
     rec.timer = window.setTimeout(() => dismiss(id), duration);
     const bar = rec.el.querySelector('.notification-toast-progress');
-    if (bar) {
+    if (bar && !bar.classList.contains('notification-toast-progress--busy')) {
       bar.style.animation = 'none';
       void bar.offsetWidth;
       bar.style.animation = 'notification-progress ' + duration + 'ms linear forwards';
     }
   }
 
+  function progressBarHtml(entry) {
+    if (entry.progress) {
+      return '<div class="notification-toast-progress notification-toast-progress--busy" aria-hidden="true"></div>';
+    }
+    if (entry.duration > 0) {
+      return '<div class="notification-toast-progress" aria-hidden="true"></div>';
+    }
+    return '';
+  }
+
+  function applyProgressBar(el, opts, duration) {
+    let progress = el.querySelector('.notification-toast-progress');
+    const wantBusy = !!opts.progress;
+    const wantTimed = !wantBusy && duration > 0;
+    if (!wantBusy && !wantTimed) {
+      if (progress) progress.remove();
+      return;
+    }
+    if (!progress) {
+      progress = document.createElement('div');
+      progress.setAttribute('aria-hidden', 'true');
+      el.appendChild(progress);
+    }
+    progress.className = wantBusy
+      ? 'notification-toast-progress notification-toast-progress--busy'
+      : 'notification-toast-progress';
+    progress.style.animation = '';
+  }
+
   function buildToastElement(entry) {
     const title = entry.title || TYPE_LABELS[entry.type] || 'Уведомление';
     const el = document.createElement('article');
-    el.className = 'notification-toast notification-toast--' + entry.type;
+    el.className = 'notification-toast notification-toast--' + entry.type +
+      (entry.progress ? ' notification-toast--busy' : '');
     el.setAttribute('role', 'alert');
     el.dataset.id = entry.id;
     el.innerHTML =
@@ -197,7 +227,7 @@
       '<div class="notification-toast-message">' + escapeHtml(entry.message) + '</div>' +
       '</div>' +
       '<button type="button" class="notification-toast-close" aria-label="Закрыть уведомление">&times;</button>' +
-      (entry.duration > 0 ? '<div class="notification-toast-progress" aria-hidden="true"></div>' : '');
+      progressBarHtml(entry);
 
     el.querySelector('.notification-toast-close').addEventListener('click', () => dismiss(entry.id));
     return el;
@@ -234,8 +264,9 @@
     const type = opts.type || 'info';
     const group = opts.group || '';
     const stack = !!opts.stack;
+    const progress = !!opts.progress;
     const id = opts.id || ('n-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-    const duration = resolveDuration(type, opts.duration, opts.persistent);
+    const duration = resolveDuration(type, opts.duration, opts.persistent || progress);
     const entry = {
       id: id,
       type: type,
@@ -244,13 +275,14 @@
       message: message,
       group: group,
       duration: duration,
+      progress: progress,
       toastOnly: !!opts.toastOnly,
       ts: Date.now(),
       read: centerOpen
     };
 
-    const mobileSingle = getToastLimit() === 1;
-    if (group && groupToId.has(group) && !stack && !mobileSingle) {
+    // Одна группа без stack — обновляем существующий toast (в т.ч. progress → done)
+    if (group && groupToId.has(group) && !stack) {
       return update(groupToId.get(group), opts);
     }
 
@@ -276,11 +308,13 @@
     }
 
     const type = opts.type || rec.el.className.match(/notification-toast--(\w+)/)?.[1] || 'info';
-    const duration = resolveDuration(type, opts.duration, opts.persistent);
+    const progress = !!opts.progress;
+    const duration = resolveDuration(type, opts.duration, opts.persistent || progress);
     const title = opts.title || TYPE_LABELS[type] || 'Уведомление';
     const source = opts.source || rec.el.querySelector('.notification-toast-app')?.textContent || 'RouteRich';
 
-    rec.el.className = 'notification-toast notification-toast--' + type + ' notification-toast--in';
+    rec.el.className = 'notification-toast notification-toast--' + type +
+      ' notification-toast--in' + (progress ? ' notification-toast--busy' : '');
     const iconWrap = rec.el.querySelector('.notification-toast-icon');
     if (iconWrap) {
       iconWrap.className = 'notification-toast-icon notification-toast-icon--' + type;
@@ -293,17 +327,7 @@
     if (titleEl) titleEl.textContent = title;
     if (msgEl) msgEl.textContent = message;
 
-    let progress = rec.el.querySelector('.notification-toast-progress');
-    if (duration > 0) {
-      if (!progress) {
-        progress = document.createElement('div');
-        progress.className = 'notification-toast-progress';
-        progress.setAttribute('aria-hidden', 'true');
-        rec.el.appendChild(progress);
-      }
-    } else if (progress) {
-      progress.remove();
-    }
+    applyProgressBar(rec.el, opts, duration);
 
     if (rec.timer) window.clearTimeout(rec.timer);
     rec.timer = null;

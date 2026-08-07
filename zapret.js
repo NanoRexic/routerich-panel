@@ -55,31 +55,80 @@ function setZapretError(msg) {
   });
 }
 
-function setZapretStatus(msg, type) {
-  if (zapretStatus) {
-    if (!msg) {
-      zapretStatus.hidden = true;
-    } else {
-      zapretStatus.hidden = true;
-    }
-  }
+function setZapretStatus(msg, type, opts) {
+  if (zapretStatus) zapretStatus.hidden = true;
   const n = zapretNotify();
   if (!n) return;
+  opts = opts || {};
   if (!msg) {
-    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret');
-    else n.dismissByGroup('zapret');
+    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret-status');
+    else if (n.dismissByGroup) n.dismissByGroup('zapret-status');
     return;
   }
   const statusType = type || 'info';
+  const progress = !!opts.progress;
+  let title = opts.title;
+  if (!title) {
+    if (progress) title = 'Подождите';
+    else if (statusType === 'success') title = 'Применено';
+    else if (statusType === 'error') title = 'Ошибка';
+    else title = 'Zapret';
+  }
   n.show({
     message: msg,
     type: statusType,
     source: 'Zapret',
-    group: 'zapret',
-    stack: true,
+    title: title,
+    group: 'zapret-status',
+    stack: false,
     toastOnly: true,
-    duration: statusType === 'success' ? ZAPRET_STATUS_VISIBLE_MS : ZAPRET_STATUS_VISIBLE_MS + 1000
+    progress: progress,
+    persistent: progress,
+    duration: progress ? 0 : (statusType === 'success' ? ZAPRET_STATUS_VISIBLE_MS : ZAPRET_STATUS_VISIBLE_MS + 1000)
   });
+}
+
+/** Краткое имя действия для toast (что именно делается) */
+function describeAction(target, value) {
+  const v = value == null ? '' : String(value);
+  switch (target) {
+    case 'start': return 'Запуск';
+    case 'stop': return 'Остановка';
+    case 'restart': return 'Перезапуск';
+    case 'base': return 'Стратегия ' + v;
+    case 'game': return v === 'remove' ? 'Игры: сброс' : 'Игры Gv' + v;
+    case 'youtube': return 'YouTube ' + v;
+    case 'discord_dv': return 'Discord Dv' + v;
+    case 'discord_script':
+      return v === 'remove' ? 'Discord-скрипт: выкл.' : 'Скрипт ' + v;
+    case 'toggle': {
+      const names = {
+        rkn: 'RKN bypass',
+        wssize: 'wssize',
+        methodeol: 'methodeol',
+        udp443: 'udp443',
+        quic: 'QUIC',
+        ipv6: 'IPv6',
+        moonlight: 'Moonlight',
+        finland: 'Finland hosts'
+      };
+      return names[v] || v;
+    }
+    case 'hosts': {
+      if (v === 'all') return 'Hosts: все';
+      if (v === 'reset') return 'Hosts: сброс';
+      if (v === 'geohide' || v === 'mafioznik' || v === 'malw') return 'Пресет ' + v;
+      return 'Hosts: ' + v;
+    }
+    case 'exclude_update': return 'Exclude-список';
+    case 'backup':
+      if (v === 'save') return 'Бэкап: сохранение';
+      if (v === 'restore') return 'Бэкап: восстановление';
+      if (v === 'delete') return 'Бэкап: удаление';
+      return 'Бэкап';
+    case 'zapret2_disable': return 'Отключение Zapret2';
+    default: return target || 'Действие';
+  }
 }
 
 function badge(on, label) {
@@ -407,8 +456,9 @@ function syncStrategyUI(d) {
   });
 
   document.querySelectorAll('[data-gv]').forEach((btn) => {
-    const gv = (s.games || '').replace(/^#?/, '');
-    btn.classList.toggle('active', btn.dataset.gv === gv.replace(/^Gv/, ''));
+    const raw = (s.games || '').replace(/^#?/, '');
+    const num = raw.replace(/^Gv/i, '');
+    btn.classList.toggle('active', btn.dataset.gv === num && !!num);
   });
   document.querySelectorAll('[data-toggle]').forEach((btn) => {
     const key = btn.dataset.toggle;
@@ -424,7 +474,12 @@ function syncStrategyUI(d) {
     btn.classList.toggle('active', !!on);
   });
   document.querySelectorAll('[data-discord-script]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.discordScript === d.discord_script);
+    const name = btn.dataset.discordScript;
+    if (!name || name === 'remove') {
+      btn.classList.remove('active');
+      return;
+    }
+    btn.classList.toggle('active', name === d.discord_script);
   });
   if (youtubeSelect && s.youtube) {
     youtubeSelect.value = s.youtube;
@@ -523,7 +578,7 @@ async function loadTestStrategies(type, force) {
     let data = await zapretGet('test-strategies', { type: selectedType });
 
     if (selectedType === 'flowseal' && data.ok && data.data && data.data.ready === false) {
-      setZapretStatus('Скачивание стратегий Flowseal… Может занять 1–2 минуты.', 'info');
+      setZapretStatus('Flowseal (1–2 мин)…', 'info', { title: 'Скачивание', progress: true });
       const prep = await prepareFlowsealStrategies();
       if (!prep.ok) {
         listSelect.innerHTML = '<option value="">— ошибка скачивания —</option>';
@@ -532,7 +587,7 @@ async function loadTestStrategies(type, force) {
         return;
       }
       data = await zapretGet('test-strategies', { type: 'flowseal' });
-      setZapretStatus('');
+      setZapretStatus('Список Flowseal', 'success', { title: 'Загружено' });
     }
 
     if (!data.ok || !data.data || !Array.isArray(data.data.strategies)) {
@@ -665,7 +720,7 @@ async function loadYoutubeList(force) {
 }
 
 async function refreshZapret(silent) {
-  if (!silent) setZapretStatus('Загрузка статуса…', 'info');
+  if (!silent) setZapretStatus('Статус…', 'info', { title: 'Обновление', progress: true });
   setZapretError('');
   try {
     const data = await zapretGet('status');
@@ -682,14 +737,14 @@ async function refreshZapret(silent) {
     } else if (zapretData.uci && zapretData.uci.ready === false) {
       setZapretError('UCI-конфиг Zapret не инициализирован. Перезагрузите роутер или откройте Zapret в LuCI.');
     } else if (zapretData.uci && zapretData.uci.initialized) {
-      setZapretStatus('UCI-конфиг Zapret инициализирован — стратегии доступны', 'info');
+      if (!silent) setZapretStatus('UCI готов', 'success', { title: 'Обновлено' });
     }
     renderZapret2Banner(zapretData);
     renderOverview(zapretData);
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
     if (!silent && !(zapretData.uci && zapretData.uci.initialized)) {
-      setZapretStatus('Обновлено', 'success');
+      setZapretStatus('Статус получен', 'success', { title: 'Обновлено' });
     }
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
@@ -703,10 +758,10 @@ async function runTest(mode, options) {
   if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
   setZapretError('');
-  const waitMsg = mode === 'strategy'
-    ? 'Тест стратегии… Применение, проверка доменов, восстановление конфига.'
-    : 'Тестирование… Это может занять до минуты.';
-  setZapretStatus(waitMsg, 'info');
+  const testLabel = mode === 'strategy'
+    ? ((options && options.name) || 'стратегия')
+    : (mode === 'domain' ? 'домены' : 'текущая');
+  setZapretStatus(testLabel, 'info', { title: 'Тест', progress: true });
   try {
     const data = await zapretTest(mode, options);
     if (!data.ok) {
@@ -724,7 +779,7 @@ async function runTest(mode, options) {
       panelTestHistoryLoaded = false;
       loadPanelTestHistory(true);
     }
-    setZapretStatus('Тест завершён и сохранён в историю', 'success');
+    setZapretStatus(testLabel + ' — в историю', 'success', { title: 'Тест завершён' });
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -755,7 +810,10 @@ async function runInstallZapret() {
 
   busy = true;
   setZapretError('');
-  setZapretStatus('Установка Zapret… Не закрывайте окно, подождите до 3 минут.', 'info');
+  setZapretStatus('Скачивание и установка (до 3 мин)…', 'info', {
+    title: 'Установка Zapret',
+    progress: true
+  });
   try {
     const data = await zapretInstall();
     if (!data.ok) {
@@ -771,9 +829,9 @@ async function runInstallZapret() {
     renderHostsBlocks(zapretData);
     syncStrategyUI(zapretData);
     if (zapretData.uci && zapretData.uci.initialized) {
-      setZapretStatus('Zapret установлен — UCI-конфиг инициализирован', 'success');
+      setZapretStatus('UCI инициализирован', 'success', { title: 'Zapret установлен' });
     } else {
-      setZapretStatus('Zapret успешно установлен', 'success');
+      setZapretStatus('Готово к настройке', 'success', { title: 'Zapret установлен' });
     }
     youtubeLoaded = false;
     loadYoutubeList();
@@ -791,7 +849,8 @@ async function runAction(target, value) {
   if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
   setZapretError('');
-  setZapretStatus('Применение…', 'info');
+  const label = describeAction(target, value);
+  setZapretStatus(label, 'info', { title: 'Применение', progress: true });
   try {
     const data = await zapretApply(target, value);
     if (!data.ok) {
@@ -802,9 +861,9 @@ async function runAction(target, value) {
     zapretData = data.data;
     if (target === 'zapret2_disable') {
       showZapret2DisabledBanner = true;
-      setZapretStatus('Zapret2 отключён', 'success');
+      setZapretStatus('Zapret2 остановлен', 'success', { title: 'Готово' });
     } else {
-      setZapretStatus('Готово', 'success');
+      setZapretStatus(label, 'success', { title: 'Применено' });
     }
     renderZapret2Banner(zapretData);
     renderOverview(zapretData);
@@ -902,7 +961,6 @@ function initZapretUi() {
   if (base) return runAction('base', base.dataset.base);
   const gv = e.target.closest('[data-gv]');
   if (gv) {
-    if (gv.dataset.gv === 'remove') return runAction('games', 'remove');
     return runAction('games', gv.dataset.gv);
   }
   const toggle = e.target.closest('[data-toggle]');
@@ -932,11 +990,14 @@ function initZapretUi() {
   const script = e.target.closest('[data-discord-script]');
   if (script) {
     const val = script.dataset.discordScript;
-    if (val === 'remove') return runAction('discord_script', 'remove');
+    if (!val || val === 'remove') return runAction('discord_script', 'remove');
+    if (script.classList.contains('active') || (zapretData && zapretData.discord_script === val)) {
+      return runAction('discord_script', 'remove');
+    }
     return runAction('discord_script', val);
   }
-  const finland = e.target.closest('[data-finland]');
-  if (finland) return runAction('toggle', 'finland');
+  const toggle = e.target.closest('[data-toggle]');
+  if (toggle) return runAction('toggle', toggle.dataset.toggle);
   });
 
   const panelHosts = document.getElementById('zapret-panel-hosts');
@@ -997,7 +1058,7 @@ function initZapretUi() {
   if (busy) return;
   busy = true;
   setZapretError('');
-  setZapretStatus('Удаление…', 'info');
+  setZapretStatus('История тестов…', 'info', { title: 'Очистка', progress: true });
   try {
     const data = await zapretTest('clear-panel');
     if (!data.ok) {
@@ -1013,7 +1074,7 @@ function initZapretUi() {
       zapretData.test_history.panel = false;
       renderOverview(zapretData);
     }
-    setZapretStatus('История очищена', 'success');
+    setZapretStatus('История тестов', 'success', { title: 'Очищено' });
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
@@ -1031,7 +1092,7 @@ function initZapretUi() {
   if (busy) return;
   busy = true;
   setZapretError('');
-  setZapretStatus('Удаление…', 'info');
+  setZapretStatus('Результаты тестов…', 'info', { title: 'Очистка', progress: true });
   try {
     const data = await zapretTest('clear');
     if (!data.ok) {
@@ -1049,7 +1110,7 @@ function initZapretUi() {
       }
       renderOverview(zapretData);
     }
-    setZapretStatus('Результаты удалены', 'success');
+    setZapretStatus('Результаты тестов', 'success', { title: 'Удалено' });
   } catch (err) {
     setZapretError('Ошибка сети: ' + err.message);
     setZapretStatus('');
