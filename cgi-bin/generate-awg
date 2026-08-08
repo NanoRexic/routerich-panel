@@ -172,20 +172,59 @@ warpgen_fetch_one() {
 }
 
 warpgen_fetch_json() {
+	# Актуально для warp-gen.github.io (старый warp-generator.github.io редиректит сюда)
+	# Порядок: рабочие vercel-зеркала → workers → legacy
 	if json_body=$(warpgen_fetch_one \
-		'https://warp-generator-config.vercel.app/api/warp-data' \
-		'https://warp-generator-config.vercel.app' \
-		'https://warp-generator-config.vercel.app/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp-generator-config.vercel.app'
+		'https://warp-vercel-chi.vercel.app/api/warp-data' \
+		'https://warp-gen.github.io' \
+		'https://warp-gen.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-vercel-chi.vercel.app'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
+		'https://warp-vercel-murex.vercel.app/api/warp-data' \
+		'https://warp-gen.github.io' \
+		'https://warp-gen.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-vercel-murex.vercel.app'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
+		'https://generator-config-warp.vercel.app/api/warp-data' \
+		'https://warp-gen.github.io' \
+		'https://warp-gen.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='generator-config-warp.vercel.app'
 		printf '%s' "$json_body"
 		return 0
 	fi
 
 	if json_body=$(warpgen_fetch_one \
 		'https://www.warp-generator.workers.dev' \
-		'https://warp-generator.github.io' \
-		'https://warp-generator.github.io/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp-generator.github.io'
+		'https://warp-gen.github.io' \
+		'https://warp-gen.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-generator.workers.dev'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
+		'https://warp.sub-aggregator.workers.dev' \
+		'https://warp-gen.github.io' \
+		'https://warp-gen.github.io/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp.sub-aggregator.workers.dev'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	# Legacy (могут быть недоступны)
+	if json_body=$(warpgen_fetch_one \
+		'https://warp-generator-config.vercel.app/api/warp-data' \
+		'https://warp-generator-config.vercel.app' \
+		'https://warp-generator-config.vercel.app/' 2>/dev/null); then
+		WARPGEN_SOURCE='warp-generator-config.vercel.app'
 		printf '%s' "$json_body"
 		return 0
 	fi
@@ -241,7 +280,7 @@ try_generate_warpgen() {
 	json_body=$(warpgen_fetch_json 2>/dev/null) || return 1
 
 	clear_saved_configs
-	source_name="${WARPGEN_SOURCE:-warp-generator.github.io}"
+	source_name="${WARPGEN_SOURCE:-warp-gen.github.io}"
 
 	for variant in 1 2 3; do
 		config=$(build_warpgen_config "$json_body" "$variant" 2>/dev/null) || return 1
@@ -279,7 +318,7 @@ GENERATED_CONFIG=""
 GENERATED_SOURCE=""
 
 if ! try_generate_warpgen; then
-	json_error "Не удалось получить конфиг с warp-generator.github.io и зеркала warp-generator-config.vercel.app. Попробуйте позже или вставьте .conf вручную."
+	json_error "Не удалось получить конфиг WARP (warp-gen.github.io / vercel-зеркала). Попробуйте позже или вставьте .conf вручную."
 	exit 0
 fi
 

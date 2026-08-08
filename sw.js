@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'routerich-panel-v1.2.1';
+const CACHE = 'routerich-panel-v1.2.2'
 const ASSETS = [
   // index.html не precache — всегда свежая версия с сервера
   '/style.css',
