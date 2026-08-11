@@ -9,6 +9,11 @@ PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"; PORTS_TCP
 MOONLIGHT_FLAG="/etc/routerich-panel/moonlight-bypass"; MOONLIGHT_UDP_PORTS="47998-48000"; MOONLIGHT_TCP_PORTS="47984,47989,48010"
 GREEN="\033[1;32m"; RED="\033[1;31m"; CYAN="\033[1;36m"; YELLOW="\033[1;33m"; MAGENTA="\033[1;35m"; BLUE="\033[0;34m"; NC="\033[0m"; DGRAY="\033[38;5;244m"
 CONF="/etc/config/zapret"; CUSTOM_DIR="/opt/zapret/init.d/openwrt/custom.d/"; HOSTLIST_FILE="/opt/zapret/ipset/zapret-hosts-user.txt"
+fileGP="/opt/zapret/ipset/zapret-hosts-google.txt"
+FAKE_DIR="/opt/zapret/files/fake"
+FAKE_FLOW_URL="https://github.com/Flowseal/zapret-discord-youtube/raw/refs/heads/main/bin"
+# Доп. fake из Flowseal (как в StressOzz Zapret-Manager ADD_FAKE_FLOW)
+FAKE_FLOW_FILES="stun2.bin quic_initial_tencent_com.bin quic_initial_steamcommunity_com.bin quic_initial_dbankcloud_ru.bin quic_initial_4pda.to.bin quic_initial_5ka_ru.bin tls_clienthello_5ka_ru.bin quic_initial_rutube_ru.bin"
 # StressOzz: ListStrYou → files/TestStrYoutube → files/StrYoutube
 STR_URL="https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/StrYoutube"
 STR_URL_FALLBACKS="https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/TestStrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/ListStrYou"
@@ -89,6 +94,47 @@ ensure_github_hosts() {
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	return 0
 }
+# Скачать недостающие fake-файлы Flowseal (Discord/игры/стратегии). Идемпотентно.
+ADD_FAKE_FLOW() {
+	local f MSG=0 dest url
+	[ -d /opt/zapret ] || return 0
+	mkdir -p "$FAKE_DIR" 2>/dev/null || true
+	for f in $FAKE_FLOW_FILES; do
+		dest="$FAKE_DIR/$f"
+		[ -f "$dest" ] && [ -s "$dest" ] && continue
+		[ "$MSG" = 0 ] && {
+			echo -e "${CYAN}Скачиваем ${NC}fake ${CYAN}файлы${NC}"
+			MSG=1
+			ensure_github_hosts
+		}
+		url="$FAKE_FLOW_URL/$f"
+		if command -v wget >/dev/null 2>&1; then
+			wget -q -U "Mozilla/5.0" -O "$dest" "$url" 2>/dev/null && [ -s "$dest" ] && continue
+		fi
+		if command -v curl >/dev/null 2>&1; then
+			curl -fsSL -A "Mozilla/5.0" -o "$dest" "$url" 2>/dev/null && [ -s "$dest" ] && continue
+		fi
+		rm -f "$dest" 2>/dev/null
+		echo -e "\n${RED}Не удалось загрузить файл ${NC}$f\n"
+	done
+}
+# Google Play / YouTube-домены в zapret-hosts-google.txt (как ADD_GP_DOMAINS в Zapret-Manager)
+ADD_GP_DOMAINS() {
+	[ -d /opt/zapret/ipset ] || return 0
+	touch "$fileGP" 2>/dev/null || true
+	# grep exit 1, если все домены уже есть — не роняем set -e
+	printf '%s\n' "gvt1.com" "googleplay.com" "play.google.com" "beacons.gvt2.com" "play.googleapis.com" \
+		"play-fe.googleapis.com" "lh3.googleusercontent.com" "android.clients.google.com" \
+		"connectivitycheck.gstatic.com" "play-lh.googleusercontent.com" "play-games.googleusercontent.com" \
+		"prod-lt-playstoregatewayadapter-pa.googleapis.com" "youtubei.youtube.com" \
+		| grep -Fxv -f "$fileGP" 2>/dev/null >> "$fileGP" || true
+}
+# Базовая YT-стратегия Yv08 в начало NFQWS_OPT, если ещё нет Yv/Flowseal general
+ADD_Yv() {
+	if ! grep -q "^#Yv" "$CONF" 2>/dev/null && ! grep -q "^#general" "$CONF" 2>/dev/null; then
+		sed -i "/^[[:space:]]*option NFQWS_OPT '/a\\#Yv08\\n--filter-tcp=443\\n--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt\\n--dpi-desync=hostfakesplit\\n--dpi-desync-hostfakesplit-mod=host=google.com\\n--dpi-desync-fooling=ts\\n--new" "$CONF"
+	fi
+}
 ZAPRET_RESTART () {
 	# Смена NFQWS_OPT (стратегия и т.п.) сносит #Moonlight — восстанавливаем, если пользователь включил модификатор
 	[ -f "$MOONLIGHT_FLAG" ] && moonlight_insert_stub
@@ -143,7 +189,9 @@ rm -f "$TMP_SF"/* 2>/dev/null; cd "$TMP_SF" || return; FILE_NAME=$(basename "$LA
 echo -e "${CYAN}Скачиваем архив ${NC}$FILE_NAME"; wget -q -U "Mozilla/5.0" -O "$FILE_NAME" "$LATEST_URL" || { echo -e "\n${RED}Не удалось скачать $FILE_NAME${NC}\n"; PAUSE; return; }; echo -e "${CYAN}Распаковываем архив${NC}"
 unzip -o "$FILE_NAME" >/dev/null; if [ "$PKG_IS_APK" -eq 1 ]; then PKG_PATH="$TMP_SF/apk"; for PKG in "$PKG_PATH"/zapret*; do [ -f "$PKG" ] || continue; echo "$PKG" | grep -q "luci" && continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done
 for PKG in "$PKG_PATH"/luci*; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done; else PKG_PATH="$TMP_SF"; for PKG in "$PKG_PATH"/zapret_*.ipk; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done
-for PKG in "$PKG_PATH"/luci-app-zapret_*.ipk; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done; fi; echo -e "${CYAN}Удаляем временные файлы${NC}"; cd /
+for PKG in "$PKG_PATH"/luci-app-zapret_*.ipk; do [ -f "$PKG" ] || continue; install_pkg "$(basename "$PKG")" "$PKG" || return; done; fi
+ADD_FAKE_FLOW
+echo -e "${CYAN}Удаляем временные файлы${NC}"; cd /
 rm -rf "$TMP_SF" /tmp/*.ipk /tmp/*.zip /tmp/*zapret* 2>/dev/null; echo -e "Zapret ${GREEN}установлен!${NC}\n"; _headless_finish "$NO_PAUSE"; }
 ZAPRET_MANAGER_UPSTREAM_URL="https://github.com/StressOzz/Zapret-Manager/raw/refs/heads/main/Zapret-Manager.sh"
 ZAPRET_MANAGER_UPSTREAM_CACHE="$TMP_SF/zapret_manager_upstream.sh"
@@ -774,27 +822,17 @@ if [ -f "$CONF" ] && { grep -q -- "--hostlist=/opt/zapret/ipset/zapret-hosts-use
 # ==========================================
 # Стратегии
 # ==========================================
-# Базовые v1–v10 — синхронизировано с StressOzz/Zapret-Manager (main)
-strategy_v1() { printf '%s\n' "#v1" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=split2" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
-strategy_v2() { printf '%s\n' "#v2" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,multisplit" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-pos=1" "--dpi-desync-fooling=ts" "--dpi-desync-repeats=8" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"; }
-strategy_v3() { printf '%s\n' "#v3" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-repeats=4" "--dpi-desync-fooling=ts,md5sig" "--dpi-desync-badseq-increment=0"; }
-strategy_v4() { printf '%s\n' "#v4" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=582" "--dpi-desync-split-pos=1" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
-strategy_v5() { printf '%s\n' "#v5" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,fakeddisorder" "--dpi-desync-split-pos=1" "--dpi-desync-fake-tls=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls-mod=none" "--dpi-desync-fakedsplit-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-badseq-increment=0"; }
-strategy_v6() { printf '%s\n' "#v6" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=i2.photo.2gis.com" "--dpi-desync-hostfakesplit-midhost=host-2" "--dpi-desync-split-seqovl=726" "--dpi-desync-fooling=badsum,badseq" "--dpi-desync-badseq-increment=0"; }
-strategy_v7() { printf '%s\n' "#v7" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,multisplit" "--dpi-desync-split-seqovl=654" "--dpi-desync-split-pos=1" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-repeats=8" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls=/opt/zapret/files/fake/stun.bin" "--dpi-desync-badseq-increment=0"; }
-strategy_v8() { printf '%s\n' "#v8" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake" "--dpi-desync-fooling=ts" "--dpi-desync-fake-tls=/opt/zapret/files/fake/4pda.bin" "--dpi-desync-fake-tls-mod=none"; }
-strategy_v9() { printf '%s\n' "#v9" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-badseq-increment=0"; }
-strategy_v10() { printf '%s\n' "#v10" "#Yv08" "--filter-tcp=443" "--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=google.com" "--dpi-desync-fooling=ts"
-printf '%s\n' "--new" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,split2" "--dpi-desync-split-pos=2" "--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "--dpi-desync-hostfakesplit-mod=host=maxcdn.bootstrapcdn.com" "--dpi-desync-fake-tls-mod=rnd,sni=maxcdn.bootstrapcdn.com" "--dpi-desync-fooling=ts"; }
+# Базовые v1–v10 — как StressOzz/Zapret-Manager (main). Yv08 добавляет ADD_Yv в install_strategy.
+strategy_v1() { printf '%s\n' "#v1" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=split2" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
+strategy_v2() { printf '%s\n' "#v2" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,multisplit" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-pos=1" "--dpi-desync-fooling=ts" "--dpi-desync-repeats=8" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"; }
+strategy_v3() { printf '%s\n' "#v3" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-repeats=4" "--dpi-desync-fooling=ts,md5sig" "--dpi-desync-badseq-increment=0"; }
+strategy_v4() { printf '%s\n' "#v4" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=582" "--dpi-desync-split-pos=1" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
+strategy_v5() { printf '%s\n' "#v5" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,fakeddisorder" "--dpi-desync-split-pos=1" "--dpi-desync-fake-tls=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls-mod=none" "--dpi-desync-fakedsplit-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-badseq-increment=0"; }
+strategy_v6() { printf '%s\n' "#v6" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=i2.photo.2gis.com" "--dpi-desync-hostfakesplit-midhost=host-2" "--dpi-desync-split-seqovl=726" "--dpi-desync-fooling=badsum,badseq" "--dpi-desync-badseq-increment=0"; }
+strategy_v7() { printf '%s\n' "#v7" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,multisplit" "--dpi-desync-split-seqovl=654" "--dpi-desync-split-pos=1" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-repeats=8" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls=/opt/zapret/files/fake/stun.bin" "--dpi-desync-badseq-increment=0"; }
+strategy_v8() { printf '%s\n' "#v8" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake" "--dpi-desync-fooling=ts" "--dpi-desync-fake-tls=/opt/zapret/files/fake/4pda.bin" "--dpi-desync-fake-tls-mod=none"; }
+strategy_v9() { printf '%s\n' "#v9" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-badseq-increment=0"; }
+strategy_v10() { printf '%s\n' "#v10" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,split2" "--dpi-desync-split-pos=2" "--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "--dpi-desync-hostfakesplit-mod=host=maxcdn.bootstrapcdn.com" "--dpi-desync-fake-tls-mod=rnd,sni=maxcdn.bootstrapcdn.com" "--dpi-desync-fooling=ts"; }
 # ==========================================
 # Cтратегии Flowseal
 # ==========================================
@@ -815,7 +853,7 @@ unzip -oq "$ZIP" -d "$TMP_SF" || { echo -e "\n${RED}Не удалось расп
 sed -i '/--hostlist="%LISTS%list-general-user.txt"/d' "$OUT"; sed -i '/--ipset-exclude="%LISTS%ipset-exclude.txt"/d' "$OUT"; sed -i '/--ipset-exclude="%LISTS%ipset-exclude-user.txt"/d' "$OUT"; sed -i '/--hostlist-exclude="%LISTS%list-exclude-user.txt"/d' "$OUT"; sed -i 's|"%LISTS%list-exclude.txt"|/opt/zapret/ipset/zapret-hosts-user-exclude.txt|g' "$OUT"
 sed -i 's/--new[[:space:]]\^/--new/g' "$OUT"; sed -i 's|"%LISTS%list-google.txt"|/opt/zapret/ipset/zapret-hosts-google.txt|g' "$OUT"; sed -i 's|"%BIN%quic_initial_dbankcloud_ru.bin"|/opt/zapret/files/fake/quic_initial_dbankcloud_ru.bin|g' "$OUT"; sed -i 's|"%BIN%stun.bin"|/opt/zapret/files/fake/stun.bin|g' "$OUT"; sed -i 's|"%BIN%tls_clienthello_4pda_to.bin"|/opt/zapret/files/fake/4pda.bin|g' "$OUT"
 sed -i 's|"%BIN%quic_initial_www_google_com.bin"|/opt/zapret/files/fake/quic_initial_www_google_com.bin|g' "$OUT"; sed -i 's|"%BIN%tls_clienthello_max_ru.bin"|/opt/zapret/files/fake/tls_clienthello_www_onetrust_com.bin|g' "$OUT"; sed -i 's|\^!|/opt/zapret/files/fake/tls_clienthello_www_google_com.bin|g' "$OUT"; sed -i 's/[[:space:]]\+$//g' "$OUT"
-sed -i '/^--new$/ { N; /^\--new\n$/d; }' "$OUT"; rm -rf "$TMP_SF/zapret-discord-youtube-main" "$ZIP"; [ "$NO_PAUSE" != "1" ] && echo -e "${GREEN}Стратегии сформированы!${NC}\n"; [ "$NO_PAUSE" != "1" ] && PAUSE; }
+sed -i '/^--new$/ { N; /^\--new\n$/d; }' "$OUT"; rm -rf "$TMP_SF/zapret-discord-youtube-main" "$ZIP"; ADD_FAKE_FLOW; [ "$NO_PAUSE" != "1" ] && echo -e "${GREEN}Стратегии сформированы!${NC}\n"; [ "$NO_PAUSE" != "1" ] && PAUSE; }
 # ==========================================
 # Меню стратегий
 # ==========================================
@@ -858,13 +896,44 @@ if ! grep -q -- "--filter-udp=19294-19344,50000-50100" "$CONF"; then last_line1=
 printf "%s\n" "--new" "--filter-udp=19294-19344,50000-50100" "--filter-l7=discord,stun" "--dpi-desync=fake" "--dpi-desync-fake-discord=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-stun=/opt/zapret/files/fake/stun.bin" \
 "--dpi-desync-repeats=6" "#Dv1" "--new" "--filter-tcp=2053,2083,2087,2096,8443" "--hostlist-domains=discord.media" \
 "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=652" "--dpi-desync-split-pos=2" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "'" >> "$CONF"; fi; }
-install_strategy() { local version="$1"; local NO_PAUSE="${2:-0}"; local fileGP="/opt/zapret/ipset/zapret-hosts-google.txt"; [ "$NO_PAUSE" != "1" ] && echo
-echo -e "${MAGENTA}Устанавливаем стратегию ${version}${NC}\n${CYAN}Меняем стратегию${NC}"; sed -i "/^[[:space:]]*option NFQWS_OPT '/,\$d" "$CONF"; { echo "  option NFQWS_OPT '"; strategy_"$version"; echo "'"; } >> "$CONF"
-printf '%s\n' "gvt1.com" "googleplay.com" "play.google.com" "beacons.gvt2.com" "play.googleapis.com" "play-fe.googleapis.com" "lh3.googleusercontent.com" "android.clients.google.com" "connectivitycheck.gstatic.com" \
-"play-lh.googleusercontent.com" "play-games.googleusercontent.com" "prod-lt-playstoregatewayadapter-pa.googleapis.com" | grep -Fxv -f "$fileGP" 2>/dev/null >> "$fileGP"
-echo -e "${CYAN}Добавляем домены в исключения${NC}"; rm -f "$EXCLUDE_FILE"; wget -q -U "Mozilla/5.0" -O "$EXCLUDE_FILE" "$EXCLUDE_URL" || { echo -e "\n${RED}Не удалось загрузить exclude файл${NC}\n"; [ "$NO_PAUSE" != "1" ] && PAUSE; return 1; }
-discord_str_add; echo -e "${CYAN}Применяем новую стратегию и настройки${NC}"; ZAPRET_RESTART; echo -e "${GREEN}Стратегия ${NC}${version}${GREEN} установлена!${NC}"
-grep -Fq "=ts" "$CONF" && echo -e "\n${YELLOW}Для работы этой стратегии, в терминале Windows нужно выполнить:${NC}\nnetsh int tcp set global timestamps=enabled"; _headless_finish "$NO_PAUSE"; }
+install_strategy() {
+	# Порядок как в Zapret-Manager: fake → NFQWS_OPT(vN) → GP-домены → exclude → Yv08 → Discord → restart
+	local version="$1"
+	local NO_PAUSE="${2:-0}"
+	[ "$NO_PAUSE" != "1" ] && echo
+	case "$version" in v[1-9]|v10) ;; *)
+		echo -e "\n${RED}Неизвестная стратегия ${version}${NC}\n"
+		[ "$NO_PAUSE" != "1" ] && PAUSE
+		return 1
+		;;
+	esac
+	echo -e "${MAGENTA}Устанавливаем стратегию ${version}${NC}\n${CYAN}Меняем стратегию${NC}"
+	ADD_FAKE_FLOW
+	sed -i "/^[[:space:]]*option NFQWS_OPT '/,\$d" "$CONF"
+	{ echo "  option NFQWS_OPT '"; strategy_"$version"; echo "'"; } >> "$CONF"
+	ADD_GP_DOMAINS
+	echo -e "${CYAN}Добавляем домены в исключения${NC}"
+	rm -f "$EXCLUDE_FILE"
+	if ! wget -q -U "Mozilla/5.0" -O "$EXCLUDE_FILE" "$EXCLUDE_URL" 2>/dev/null; then
+		if ! curl -fsSL -A "Mozilla/5.0" -o "$EXCLUDE_FILE" "$EXCLUDE_URL" 2>/dev/null; then
+			echo -e "\n${RED}Не удалось загрузить exclude файл${NC}\n"
+			[ "$NO_PAUSE" != "1" ] && PAUSE
+			return 1
+		fi
+	fi
+	[ -s "$EXCLUDE_FILE" ] || {
+		echo -e "\n${RED}Не удалось загрузить exclude файл${NC}\n"
+		[ "$NO_PAUSE" != "1" ] && PAUSE
+		return 1
+	}
+	ADD_Yv
+	discord_str_add
+	echo -e "${CYAN}Применяем новую стратегию и настройки${NC}"
+	ZAPRET_RESTART
+	echo -e "${GREEN}Стратегия ${NC}${version}${GREEN} установлена!${NC}"
+	grep -Fq "=ts" "$CONF" && echo -e "\n${YELLOW}Для работы этой стратегии, в терминале Windows нужно выполнить:${NC}\nnetsh int tcp set global timestamps=enabled"
+	_headless_finish "$NO_PAUSE"
+}
 choose_strategy_manual() { fetch_youtube_list "$TMP_LIST" || { echo -e "\n${RED}Не удалось скачать список${NC}\n"; PAUSE; return 1; }
 COUNT=0; > $TMP_SF/strategy_list; while IFS= read -r LINE; do case "$LINE" in \#Yv[0-9]*|Yv[0-9]*) COUNT=$((COUNT + 1)); echo "$LINE" >> $TMP_SF/strategy_list;; esac; done < "$TMP_LIST"
 [ "$COUNT" -eq 0 ] && echo -e "${RED}Стратегий не найдено!${NC}\n" && PAUSE && rm -f $TMP_SF/strategy_list && return 1; echo -en "\n${YELLOW}Введите версию стратегии для YouTube (${NC}1-$COUNT${YELLOW}):${NC} "
