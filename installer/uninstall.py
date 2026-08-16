@@ -100,6 +100,10 @@ def main() -> int:
 
     cmds = [
         ("Remove uhttpd.panel", "uci -q delete uhttpd.panel 2>/dev/null; uci commit uhttpd 2>/dev/null; /etc/init.d/uhttpd restart 2>/dev/null"),
+        (
+            "Remove WAN panel drop rule",
+            "uci -q delete firewall.panel_deny_wan; uci -q delete firewall.wan_limit_panel; uci -q delete firewall.wan_drop_panel; uci commit firewall; fw4 reload 2>/dev/null || /etc/init.d/firewall reload 2>/dev/null; true",
+        ),
         ("Remove web files", "rm -rf /www/routerich-panel"),
         ("Remove panel data", "rm -rf /etc/routerich-panel"),
         ("Remove temp scripts", "rm -f /tmp/routerich-setup-panel.sh"),

@@ -227,6 +227,15 @@ run_update() {
 	# После деплоя принудительно выставляем VERSION + meta на remote latest
 	sync_version_files "$latest"
 
+	# Повторно вешаем панель только на LAN и DROP с WAN
+	port=$(uci -q show uhttpd.panel 2>/dev/null | sed -n "s/.*listen_http='[^']*:\\([0-9][0-9]*\\)'.*/\\1/p" | head -1)
+	[ -n "$port" ] || port=2020
+	if fetch "$REPO_RAW/setup-panel.sh" "$TMP_DIR/setup-panel.sh"; then
+		sed 's/\r$//' "$TMP_DIR/setup-panel.sh" > "$TMP_DIR/setup-panel.norm" 2>/dev/null \
+			&& mv "$TMP_DIR/setup-panel.norm" "$TMP_DIR/setup-panel.sh"
+		sh "$TMP_DIR/setup-panel.sh" "$port" >/dev/null 2>&1 || true
+	fi
+
 	json_ok_update "$latest"
 }
 

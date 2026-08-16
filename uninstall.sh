@@ -12,6 +12,17 @@ log "Removing uhttpd.panel..."
 uci -q delete uhttpd.panel 2>/dev/null || true
 uci commit uhttpd 2>/dev/null || true
 
+log "Removing WAN drop rule..."
+for s in panel_deny_wan wan_limit_panel wan_drop_panel; do
+	uci -q delete "firewall.$s" 2>/dev/null || true
+done
+uci commit firewall 2>/dev/null || true
+if command -v fw4 >/dev/null 2>&1; then
+	fw4 reload >/dev/null 2>&1 || true
+elif [ -x /etc/init.d/firewall ]; then
+	/etc/init.d/firewall reload >/dev/null 2>&1 || true
+fi
+
 log "Removing web files..."
 rm -rf /www/routerich-panel
 
