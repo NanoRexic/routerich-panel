@@ -2,10 +2,11 @@
 # ==========================================
 # Zapret on remittor Manager by StressOzz
 # =========================================
-ZAPRET_MANAGER_VERSION="9.80"; STR_VERSION_AUTOINSTALL="v7"
+ZAPRET_MANAGER_VERSION="9.82"; STR_VERSION_AUTOINSTALL="v7"
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null | cut -d/ -f1)
 DOMAINS="youtube.com rr1---sn-gvnuxaxjvh-jx3z.googlevideo.com rr1---sn-gvnuxaxjvh-jx3l.googlevideo.com rr1---sn-gvnuxaxjvh-jx3s.googlevideo.com"
-PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"; PORTS_TCP="2802,2302,2502,6000-8000,25565,27015-27030,27036-27037,50001,60442"
+PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"; PORTS_TCP="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442"
+GV_XTREME_FILE="/opt/zapret/tmp/GvXtreme"; GV_XTREME_PORTS="80,88,444-65535"; GV_XTREME_NFQWS_PORTS="80,88,443-65535"
 MOONLIGHT_FLAG="/etc/routerich-panel/moonlight-bypass"; MOONLIGHT_UDP_PORTS="47998-48000"; MOONLIGHT_TCP_PORTS="47984,47989,48010"
 GREEN="\033[1;32m"; RED="\033[1;31m"; CYAN="\033[1;36m"; YELLOW="\033[1;33m"; MAGENTA="\033[1;35m"; BLUE="\033[0;34m"; NC="\033[0m"; DGRAY="\033[38;5;244m"
 CONF="/etc/config/zapret"; CUSTOM_DIR="/opt/zapret/init.d/openwrt/custom.d/"; HOSTLIST_FILE="/opt/zapret/ipset/zapret-hosts-user.txt"
@@ -15,22 +16,70 @@ FAKE_FLOW_URL="https://github.com/Flowseal/zapret-discord-youtube/raw/refs/heads
 # Доп. fake из Flowseal (как в StressOzz Zapret-Manager ADD_FAKE_FLOW)
 FAKE_FLOW_FILES="stun2.bin quic_initial_tencent_com.bin quic_initial_steamcommunity_com.bin quic_initial_dbankcloud_ru.bin quic_initial_4pda.to.bin quic_initial_5ka_ru.bin tls_clienthello_5ka_ru.bin quic_initial_rutube_ru.bin"
 # StressOzz: ListStrYou → files/TestStrYoutube → files/StrYoutube
-STR_URL="https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/StrYoutube"
-STR_URL_FALLBACKS="https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/TestStrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/ListStrYou"
+# raw.githubusercontent.com с роутера часто 429; jsDelivr Fastly и GitHub API живые
+STR_URL="https://fastly.jsdelivr.net/gh/StressOzz/Zapret-Manager@main/files/StrYoutube"
+STR_URL_FALLBACKS="https://cdn.jsdelivr.net/gh/StressOzz/Zapret-Manager@main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/TestStrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/ListStrYou"
+YT_LIST_CACHE="/etc/routerich-panel/StrYoutube.cache"
+YT_LIST_API="https://api.github.com/repos/StressOzz/Zapret-Manager/contents/files/StrYoutube"
 GEO_HOSTS="https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts"
 TMP_SF="/tmp/zapret_temp"; HOSTS_FILE="/etc/hosts"; TMP_LIST="$TMP_SF/zapret_yt_list.txt"; tmpDIR="/tmp/PodkopAWG"
-# Загрузка списка Yv с fallback на старые имена файла (StressOzz периодически переименовывает)
+# Настоящий список Yv, не HTML/429
+_youtube_list_valid() {
+	[ -s "$1" ] || return 1
+	grep -qE '^(#)?Yv[0-9]+' "$1" 2>/dev/null || return 1
+	grep -qiE 'too many requests|<!doctype|<html' "$1" 2>/dev/null && return 1
+	return 0
+}
+_youtube_list_download() {
+	local url="$1" dest="$2"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL --connect-timeout 4 --max-time 8 -A "Mozilla/5.0" -o "$dest" "$url" 2>/dev/null || return 1
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -T 8 -U "Mozilla/5.0" -O "$dest" "$url" 2>/dev/null || return 1
+	else
+		return 1
+	fi
+	_youtube_list_valid "$dest"
+}
+_youtube_list_from_github_api() {
+	local dest="$1" json="$TMP_SF/stryoutube.api.json"
+	mkdir -p "$TMP_SF"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL --connect-timeout 4 --max-time 8 -A "Mozilla/5.0" \
+			-H "Accept: application/vnd.github.raw" \
+			-o "$dest" "$YT_LIST_API" 2>/dev/null || return 1
+		if _youtube_list_valid "$dest"; then
+			return 0
+		fi
+		curl -fsSL --connect-timeout 4 --max-time 8 -A "Mozilla/5.0" \
+			-o "$json" "$YT_LIST_API" 2>/dev/null || return 1
+	else
+		return 1
+	fi
+	command -v jq >/dev/null 2>&1 || return 1
+	command -v base64 >/dev/null 2>&1 || return 1
+	jq -r '.content // empty' "$json" 2>/dev/null | tr -d '\n' | base64 -d > "$dest" 2>/dev/null || return 1
+	_youtube_list_valid "$dest"
+}
+# Загрузка списка Yv: GitHub API / jsDelivr, затем raw, затем кэш
 fetch_youtube_list() {
 	local dest="${1:-$TMP_LIST}" url
 	mkdir -p "$(dirname "$dest")" 2>/dev/null || mkdir -p "$TMP_SF"
+	mkdir -p /etc/routerich-panel 2>/dev/null || true
+	if _youtube_list_from_github_api "$dest"; then
+		cp "$dest" "$YT_LIST_CACHE" 2>/dev/null || true
+		return 0
+	fi
 	for url in "$STR_URL" $STR_URL_FALLBACKS; do
 		[ -n "$url" ] || continue
-		if command -v curl >/dev/null 2>&1; then
-			curl -fsSL "$url" -o "$dest" 2>/dev/null && [ -s "$dest" ] && return 0
-		elif command -v wget >/dev/null 2>&1; then
-			wget -q -U "Mozilla/5.0" -O "$dest" "$url" 2>/dev/null && [ -s "$dest" ] && return 0
+		if _youtube_list_download "$url" "$dest"; then
+			cp "$dest" "$YT_LIST_CACHE" 2>/dev/null || true
+			return 0
 		fi
 	done
+	if _youtube_list_valid "$YT_LIST_CACHE"; then
+		cp "$YT_LIST_CACHE" "$dest" 2>/dev/null && return 0
+	fi
 	return 1
 }
 IF_NAME="AWG"; PROTO="amneziawg"; DEV_NAME="amneziawg0"; BASE_URL="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/"
@@ -82,7 +131,7 @@ SPFY="#Spotify\n45.155.204.190 api.spotify.com login5.spotify.com encore.scdn.co
 45.155.204.190 accounts.scdn.co gew1-dealer.spotify.com open-exp.spotifycdn.com www-growth.scdn.co"
 GITH="#githubusercontent.com\n185.199.109.133 raw.githubusercontent.com release-assets.githubusercontent.com
 185.199.108.133 private-user-images.githubusercontent.com gist.githubusercontent.com avatars.githubusercontent.com"
-ALL_BLOCKS="$AI\n$INSTAGRAM\n$NTC\n$RUTOR\n$LIBRUSEC\n$TGWeb\n$TWCH\n$SCell\n$SPFY\n$GITH"; TMP_ARCHIVE_RS="/tmp/tg-ws-proxy-rs.tar.gz"; TMP_DIR_RS="/tmp/tg-ws-proxy-rs"
+ALL_BLOCKS="$NALOG\n$AI\n$INSTAGRAM\n$NTC\n$RUTOR\n$LIBRUSEC\n$TGWeb\n$TWCH\n$SCell\n$SPFY\n$GITH"; TMP_ARCHIVE_RS="/tmp/tg-ws-proxy-rs.tar.gz"; TMP_DIR_RS="/tmp/tg-ws-proxy-rs"
 hosts_enabled() { if grep -q "### dns.malw.link" /etc/hosts; then hosts_echo="Malw.link"; return 0; elif grep -q "#mafioznik" /etc/hosts; then hosts_echo="Mafioznik"; return 0; elif grep -q "### dns.geohide.ru" /etc/hosts; then hosts_echo="GeoHide"; return 0
 elif grep -q "45.155.204.190\|instagram.com\|rutor.info\|lib.rus.ec\|ntc.party\|twitch.tv\|web.telegram.org\|www.spotify.com\|store.supercell.com\|raw.githubusercontent.com\|lkfl2.nalog.ru" /etc/hosts; then hosts_echo="добавлены"; return 0; fi; return 1; }
 hosts_add() { printf "%b\n" "$1" | while IFS= read -r L; do grep -qxF "$L" /etc/hosts || echo "$L" >> /etc/hosts; done; /etc/init.d/dnsmasq restart >/dev/null 2>&1; }
@@ -129,7 +178,7 @@ ADD_GP_DOMAINS() {
 		"prod-lt-playstoregatewayadapter-pa.googleapis.com" "youtubei.youtube.com" \
 		| grep -Fxv -f "$fileGP" 2>/dev/null >> "$fileGP" || true
 }
-# Базовая YT-стратегия Yv08 в начало NFQWS_OPT, если ещё нет Yv/Flowseal general
+# Базовая YT-стратегия Yv08 в начало NFQWS_OPT, если ещё нет Yv
 ADD_Yv() {
 	if ! grep -q "^#Yv" "$CONF" 2>/dev/null && ! grep -q "^#general" "$CONF" 2>/dev/null; then
 		sed -i "/^[[:space:]]*option NFQWS_OPT '/a\\#Yv08\\n--filter-tcp=443\\n--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt\\n--dpi-desync=hostfakesplit\\n--dpi-desync-hostfakesplit-mod=host=google.com\\n--dpi-desync-fooling=ts\\n--new" "$CONF"
@@ -459,69 +508,13 @@ _extract_strategy_block() {
 	awk -v name="$NAME" '$0=="#"name {flag=1; print; next} /^#/ && flag {exit} flag {print}' "$SOURCE"
 }
 
-_flowseal_list_json() {
-	jq -n \
-		--arg type "flowseal" \
-		--argjson ready true \
-		--rawfile raw "$OUT" \
-		'$raw
-		| split("\n")
-		| map(select(length > 0 and startswith("#")))
-		| map(ltrimstr("#"))
-		| {type: $type, ready: $ready, strategies: .}'
-}
-
-prepare_flowseal_strategies_api() {
-	FLOWSEAL_LOCK="$TMP_SF/flowseal.lock"
-	mkdir -p "$TMP_SF"
-
-	if [ -s "$OUT" ]; then
-		jq -n '{ready: true, cached: true}'
-		return 0
-	fi
-
-	if [ -f "$FLOWSEAL_LOCK" ]; then
-		waited=0
-		while [ "$waited" -lt 180 ]; do
-			[ -s "$OUT" ] && { jq -n '{ready: true, cached: true, waited: true}'; return 0; }
-			[ -f "$FLOWSEAL_LOCK" ] || break
-			sleep 2
-			waited=$((waited + 2))
-		done
-	fi
-
-	if [ -s "$OUT" ]; then
-		jq -n '{ready: true, cached: true}'
-		return 0
-	fi
-
-	printf '%s\n' "$$" > "$FLOWSEAL_LOCK"
-	download_strategies 1 >/dev/null 2>&1
-	rc=$?
-	rm -f "$FLOWSEAL_LOCK"
-
-	if [ "$rc" -eq 0 ] && [ -s "$OUT" ]; then
-		jq -n '{ready: true, cached: false}'
-		return 0
-	fi
-	return 1
-}
-
 list_test_strategies_api() {
 	TYPE="$1"
 	case "$TYPE" in
-		versions)
+		versions|"")
 			_collect_versions_strategy_file
 			SOURCE="$STR_FILE"
-			;;
-		flowseal)
-			mkdir -p "$TMP_SF"
-			if [ ! -s "$OUT" ]; then
-				jq -n --arg type "$TYPE" '{type: $type, ready: false, strategies: []}'
-				return 0
-			fi
-			_flowseal_list_json
-			return 0
+			TYPE="versions"
 			;;
 		*)
 			return 1
@@ -549,15 +542,9 @@ test_single_strategy_api() {
 	cp "$CONF" "$BACK"
 
 	case "$TYPE" in
-		versions)
+		versions|"")
 			_collect_versions_strategy_file
 			SOURCE="$STR_FILE"
-			;;
-		flowseal)
-			if [ ! -s "$OUT" ]; then
-				prepare_flowseal_strategies_api || { rm -f "$BACK"; return 1; }
-			fi
-			SOURCE="$OUT"
 			;;
 		*)
 			rm -f "$BACK"
@@ -742,8 +729,44 @@ add_ports_if_missing() { local OPTION="$1"; local PORTS="$2"; for p in $(echo "$
 _strategy_tcp_block() { local TCP="$1"; printf "%s\n" "--new" "--filter-tcp=$TCP" "--dpi-desync-any-protocol=1" "--dpi-desync-cutoff=n5" "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=582" "--dpi-desync-split-pos=1" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
 strategy_TCP_common() { _strategy_tcp_block "$PORTS_TCP"; }
 strategy_Gv1() { printf "%s\n" "#Gv1" "--new" "--filter-udp=$PORTS_UDP" "--dpi-desync=fake" "--dpi-desync-cutoff=d2" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin"; }
-strategy_Gv() { local N="$1"; printf "%s\n" "#Gv$N" "--new" "--filter-udp=$PORTS_UDP" "--dpi-desync=fake" "--dpi-desync-repeats=10" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/quic_initial_www_google_com.bin" "--dpi-desync-cutoff=n$N"; }
-fix_GAME() { local NO_PAUSE=$1; [ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return; }; local CURRENT_GAME=""; for i in 1 2 3 4; do grep -q "^#Gv$i" "$CONF" && CURRENT_GAME="Gv$i"; done
+strategy_Gv() { local N="$1"; printf "%s\n" "#Gv$N" "--new" "--filter-udp=$PORTS_UDP" "--dpi-desync=fake" "--dpi-desync-repeats=10" "--dpi-desync-any-protocol=1" "--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin" "--dpi-desync-cutoff=n$N"; }
+gv_xtreme_active() { grep -qE '^#Gv[0-9]+Xtreme$' "$CONF" 2>/dev/null; }
+Gv_Xtreme() {
+	if ! grep -qE '^#Gv[0-9]+' "$CONF"; then
+		echo -e "\n${RED}Игровая стратегия ${NC}Gv${RED} не найдена!${NC}\n"
+		PAUSE
+		return 1
+	fi
+	mkdir -p "$(dirname "$GV_XTREME_FILE")"
+	if gv_xtreme_active; then
+		[ ! -f "$GV_XTREME_FILE" ] && { echo -e "\n${RED}Файл восстановления не найден!${NC}\n"; PAUSE; return 1; }
+		echo -e "\n${CYAN}Отключаем ${NC}Xtreme ${CYAN}режим${NC}"
+		OLD_GV=$(sed -n '1p' "$GV_XTREME_FILE")
+		OLD_UDP=$(sed -n '2p' "$GV_XTREME_FILE")
+		OLD_TCP=$(sed -n '3p' "$GV_XTREME_FILE")
+		OLD_TCP_OPTION=$(sed -n '4p' "$GV_XTREME_FILE")
+		OLD_UDP_OPTION=$(sed -n '5p' "$GV_XTREME_FILE")
+		awk -v gv="$OLD_GV" -v udp="$OLD_UDP" -v tcp="$OLD_TCP" '/^#Gv[0-9]+Xtreme$/ {print gv; restore=1; next} restore && /^--filter-udp=/ {print udp; next} restore && /^--filter-tcp=/ {print tcp; restore=0; next} {print}' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+		[ -n "$OLD_TCP_OPTION" ] && sed -i "s|^[[:space:]]*option NFQWS_PORTS_TCP .*|$OLD_TCP_OPTION|" "$CONF"
+		[ -n "$OLD_UDP_OPTION" ] && sed -i "s|^[[:space:]]*option NFQWS_PORTS_UDP .*|$OLD_UDP_OPTION|" "$CONF"
+		rm -f "$GV_XTREME_FILE"
+		ZAPRET_RESTART
+		echo -e "Xtreme${GREEN} режим отключён!${NC}\n"
+		PAUSE
+		return 0
+	fi
+	echo -e "\n${CYAN}Включаем ${NC}Xtreme ${CYAN}режим${NC}"
+	awk '/^#Gv[0-9]+$/ {gv=$0; found=1; next} found && /^--filter-udp=/ {udp=$0} found && /^--filter-tcp=/ {tcp=$0} /^[[:space:]]*option NFQWS_PORTS_TCP / {tcp_option=$0} /^[[:space:]]*option NFQWS_PORTS_UDP / {udp_option=$0} END {print gv; print udp; print tcp; print tcp_option; print udp_option}' "$CONF" > "$GV_XTREME_FILE"
+	sed -i -e "s|^[[:space:]]*option NFQWS_PORTS_TCP .*|	option NFQWS_PORTS_TCP '$GV_XTREME_NFQWS_PORTS'|" -e "s|^[[:space:]]*option NFQWS_PORTS_UDP .*|	option NFQWS_PORTS_UDP '$GV_XTREME_NFQWS_PORTS'|" "$CONF"
+	sed -i "s/^#\(Gv[0-9]\+\)$/#\1Xtreme/" "$CONF"
+	awk -v ports="$GV_XTREME_PORTS" '/^#Gv[0-9]+Xtreme$/ {gv=1; print; next} gv && /^--filter-udp=/ {print "--filter-udp=" ports; next} gv && /^--filter-tcp=/ {print "--filter-tcp=" ports; gv=0; next} {print}' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+	ZAPRET_RESTART
+	echo -e "Xtreme${GREEN} режим включён!${NC}"
+	echo -e "\n${RED}Внимание: ${YELLOW}Xtreme режим может повлиять на работу приложений и соединений!${NC}\n"
+	PAUSE
+	return 0
+}
+fix_GAME() { local NO_PAUSE=$1; [ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return; }; gv_xtreme_active && Gv_Xtreme; local CURRENT_GAME=""; for i in 1 2 3 4; do grep -q "^#Gv$i" "$CONF" && CURRENT_GAME="Gv$i"; done
 if [ -n "$NO_PAUSE" ]; then GAME_CHOICE="$NO_PAUSE"; else echo -e "\n${MAGENTA}Выберите стратегию для игр${NC}"; for i in $(seq 1 4); do if [ "$CURRENT_GAME" = "Gv$i" ]; then echo -e "${CYAN}$i) ${GREEN}Удалить ${NC}Gv$i"; else echo -e "${CYAN}$i) ${GREEN}Установить ${NC}Gv$i"; fi; done
 echo -e "${CYAN}Enter) ${GREEN}Выход в меню стратегий"; echo -en "\n${YELLOW}Выберите пункт: ${NC}"; read GAME_CHOICE; fi; case "$GAME_CHOICE" in 1|2|3|4) ;; *) return ;; esac; LAST_QUOTE=$(grep -n "^'\$" "$CONF" | tail -n1 | cut -d: -f1)
 if grep -q "^#Gv" "$CONF"; then Gv_LINE=$(grep -n "^#Gv" "$CONF" | tail -n1 | cut -d: -f1); sed -i "${Gv_LINE},${LAST_QUOTE}d" "$CONF"; elif [ -n "$LAST_QUOTE" ]; then sed -i "${LAST_QUOTE},\$d" "$CONF"; fi
@@ -834,27 +857,6 @@ strategy_v8() { printf '%s\n' "#v8" "--filter-tcp=443" "--hostlist-exclude=/opt/
 strategy_v9() { printf '%s\n' "#v9" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-fooling=badseq,badsum" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-badseq-increment=0"; }
 strategy_v10() { printf '%s\n' "#v10" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,split2" "--dpi-desync-split-pos=2" "--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "--dpi-desync-hostfakesplit-mod=host=maxcdn.bootstrapcdn.com" "--dpi-desync-fake-tls-mod=rnd,sni=maxcdn.bootstrapcdn.com" "--dpi-desync-fooling=ts"; }
 # ==========================================
-# Cтратегии Flowseal
-# ==========================================
-flowseal_menu() { [ ! -f "$OUT" ] && download_strategies; while true; do STRATEGIES=$(grep '^#' "$OUT" | sed 's/^#//'); clear
-echo -e "${YELLOW}Список стратегий от Flowseal${NC}\n"; i=1; echo "$STRATEGIES" | while IFS= read -r line; do if [ "$i" -lt 10 ]; then echo -e " ${CYAN}$i) ${NC}$line"; else echo -e "${CYAN}$i) ${NC}$line"; fi; i=$((i+1)); done
-echo -en "${CYAN} 0) ${GREEN}Обновить стратегии${NC}\n${CYAN}Enter) ${GREEN}Выход в меню стратегий${NC}\n\n${YELLOW}Выберите пункт: ${NC}"; read CHOICE_SF
-[ -z "$CHOICE_SF" ] && return; echo "$CHOICE_SF" | grep -qE '^[0-9]+$' || return; [ "$CHOICE_SF" -eq 0 ] && { rm -rf "$TMP_SF"; download_strategies; continue; }; SEL_NAME=$(echo "$STRATEGIES" | sed -n "${CHOICE_SF}p"); [ -z "$SEL_NAME" ] && return
-BLOCK=$(awk -v name="$SEL_NAME" '$0=="#"name {flag=1; print; next} /^#/ && flag {exit} flag {print}' "$OUT"); sed -i "/option NFQWS_OPT '/,\$d" "$CONF"; { echo "	option NFQWS_OPT '"; echo "$BLOCK"; echo "'"; } >> "$CONF"
-if ! grep -q "option NFQWS_PORTS_UDP.*19294-19344,50000-50100" "$CONF"; then sed -i "/^[[:space:]]*option NFQWS_PORTS_UDP '/s/'$/,19294-19344,50000-50100'/" "$CONF"; fi; if ! grep -q "option NFQWS_PORTS_TCP.*2053,2083,2087,2096,8443" "$CONF"
-then sed -i "/^[[:space:]]*option NFQWS_PORTS_TCP '/s/'$/,2053,2083,2087,2096,8443'/" "$CONF"; fi; echo -e "\n${MAGENTA}Устанавливаем стратегию\n${CYAN}Добавляем домены в исключения${NC}"; rm -f "$EXCLUDE_FILE"
-wget -q -U "Mozilla/5.0" -O "$EXCLUDE_FILE" "$EXCLUDE_URL" || { echo -e "\n${RED}Не удалось загрузить exclude файл${NC}\n"; PAUSE; return; }; echo -e "${CYAN}Применяем стратегию${NC}"; ZAPRET_RESTART; echo -e "${GREEN}Стратегия ${NC}$SEL_NAME ${GREEN}установлена!${NC}\n"
-grep -Fq "=ts" "$CONF" && echo -e "${YELLOW}Для работы этой стратегии, в терминале Windows нужно выполнить:${NC}\nnetsh int tcp set global timestamps=enabled\n"; PAUSE; break; done; }
-download_strategies() { local NO_PAUSE=$1; [ "$NO_PAUSE" != "1" ] && echo -e "\n${MAGENTA}Скачиваем и формируем стратегии${NC}"; mkdir -p "$TMP_SF"; : > "$OUT";  wget -q -U "Mozilla/5.0" -O "$ZIP" https://github.com/Flowseal/zapret-discord-youtube/archive/refs/heads/main.zip || { echo -e "\n${RED}Не удалось загрузить файл стратегий${NC}\n"; PAUSE; return; }
-wget -q -U "Mozilla/5.0" -O /opt/zapret/files/fake/quic_initial_dbankcloud_ru.bin https://github.com/Flowseal/zapret-discord-youtube/raw/refs/heads/main/bin/quic_initial_dbankcloud_ru.bin || { echo -e "\n${RED}Не удалось загрузить файл quic_initial_dbankcloud_ru.bin${NC}\n"; PAUSE; return; }
-if ! command -v unzip >/dev/null 2>&1; then echo -e "${CYAN}Устанавливаем ${NC}unzip"; if [ "$PKG_IS_APK" -eq 1 ]; then apk add unzip >/dev/null 2>&1 || { echo -e "\n${RED}Не удалось установить unzip!${NC}\n"; PAUSE; return; }; else opkg install unzip >/dev/null 2>&1 || { echo -e "\n${RED}Не удалось установить unzip!${NC}\n"; PAUSE; return; }; fi; fi
-unzip -oq "$ZIP" -d "$TMP_SF" || { echo -e "\n${RED}Не удалось распоковать файл${NC}\n"; PAUSE; return; }; BASE="$TMP_SF/zapret-discord-youtube-main"; find "$BASE" -type f -name 'general*.bat' ! -name 'general (ALT5).bat' | while read -r F; do MATCH=$(grep -E '^--filter-udp=19294-19344,50000-50100|^--filter-tcp=2053,2083,2087,2096,8443|^--filter-tcp=443 --hostlist="%LISTS%list-google.txt"|^--filter-tcp=80,443 --hostlist="%LISTS%list-general.txt"' "$F")
-[ -z "$MATCH" ] && continue; NAME=$(basename "$F" .bat); { echo "#$NAME"; echo "$MATCH" | sed 's/--/\n--/g' | sed '/^$/d' | sed 's/[[:space:]]*$//'; echo; } >> "$OUT"; done; sed -i 's|"%BIN%tls_clienthello_www_google_com.bin"|/opt/zapret/files/fake/tls_clienthello_www_google_com.bin|g' "$OUT"; sed -i '/--hostlist="%LISTS%list-general.txt"/d' "$OUT"
-sed -i '/--hostlist="%LISTS%list-general-user.txt"/d' "$OUT"; sed -i '/--ipset-exclude="%LISTS%ipset-exclude.txt"/d' "$OUT"; sed -i '/--ipset-exclude="%LISTS%ipset-exclude-user.txt"/d' "$OUT"; sed -i '/--hostlist-exclude="%LISTS%list-exclude-user.txt"/d' "$OUT"; sed -i 's|"%LISTS%list-exclude.txt"|/opt/zapret/ipset/zapret-hosts-user-exclude.txt|g' "$OUT"
-sed -i 's/--new[[:space:]]\^/--new/g' "$OUT"; sed -i 's|"%LISTS%list-google.txt"|/opt/zapret/ipset/zapret-hosts-google.txt|g' "$OUT"; sed -i 's|"%BIN%quic_initial_dbankcloud_ru.bin"|/opt/zapret/files/fake/quic_initial_dbankcloud_ru.bin|g' "$OUT"; sed -i 's|"%BIN%stun.bin"|/opt/zapret/files/fake/stun.bin|g' "$OUT"; sed -i 's|"%BIN%tls_clienthello_4pda_to.bin"|/opt/zapret/files/fake/4pda.bin|g' "$OUT"
-sed -i 's|"%BIN%quic_initial_www_google_com.bin"|/opt/zapret/files/fake/quic_initial_www_google_com.bin|g' "$OUT"; sed -i 's|"%BIN%tls_clienthello_max_ru.bin"|/opt/zapret/files/fake/tls_clienthello_www_onetrust_com.bin|g' "$OUT"; sed -i 's|\^!|/opt/zapret/files/fake/tls_clienthello_www_google_com.bin|g' "$OUT"; sed -i 's/[[:space:]]\+$//g' "$OUT"
-sed -i '/^--new$/ { N; /^\--new\n$/d; }' "$OUT"; rm -rf "$TMP_SF/zapret-discord-youtube-main" "$ZIP"; ADD_FAKE_FLOW; [ "$NO_PAUSE" != "1" ] && echo -e "${GREEN}Стратегии сформированы!${NC}\n"; [ "$NO_PAUSE" != "1" ] && PAUSE; }
-# ==========================================
 # Меню стратегий
 # ==========================================
 manage_block() { action="$1"; f1="$2"; f2="$3"; if [ "$action" = "add" ]; then echo -e "\n${MAGENTA}Добавляем блок с ${f2}\n${CYAN}Добавляем блок в стратегию\nПерезапускаем ${NC}Zapret"; last_line=$(grep -n "^'$" "$CONF" | tail -n1 | cut -d: -f1)
@@ -868,15 +870,15 @@ if [ -f "$CONF" ]; then current="$ver$( [ -n "$ver" ] && [ -n "$yv_ver" ] && ech
 then echo -e "${YELLOW}Используется стратегия:${NC}  ${CYAN}$current${DV:+ $DV}${GV:+ $GV}${RKN_STATUS:+ $RKN_STATUS}${NC}" && pri=1; elif [ -n "$RKN_STATUS" ]; then echo -e "${YELLOW}Используется стратегия:${NC}  ${CYAN}РКН${DV:+ $DV}${GV:+ $GV}${NC}" && pri=1; fi; fi
 grep -q -F -- "--wssize 1:6" "$CONF" && echo -e "${YELLOW}Блок с --wssize 1:6: ${GREEN}активирован${NC}" && pri=1; grep -q -F -- "--methodeol" "$CONF" && echo -e "${YELLOW}Блок с --methodeol: ${GREEN}активирован${NC}" && pri=1
 grep -q "^#udp443" "$CONF" && echo -e "${YELLOW}Блок с --filter-udp=443: ${GREEN}активирован${NC}" && pri=1
-[ "$pri" -eq 1 ] && echo; echo -e "${CYAN}1) ${GREEN}Выбрать и установить стратегию ${NC}v1-v10\n${CYAN}2) ${GREEN}Выбрать и установить стратегию от ${NC}Flowseal\n${CYAN}3) ${GREEN}Выбрать и установить стратегию для ${NC}YouTube\n${CYAN}4) ${GREEN}Выбрать и установить стратегию для ${NC}игр"
-echo -e "${CYAN}5) ${NC}$RKN_TEXT_MENU${NC}\n${CYAN}6) ${GREEN}Обновить список исключений${NC}"; if grep -q -F -- "--wssize 1:6" "$CONF"; then WSSIZE_MENU_TEXT="${GREEN}Удалить из стратегии блок с ${NC}--wssize 1:6"; else WSSIZE_MENU_TEXT="${GREEN}Добавить в стратегию блок с ${NC}--wssize 1:6"; fi
+[ "$pri" -eq 1 ] && echo; echo -e "${CYAN}1) ${GREEN}Выбрать и установить стратегию ${NC}v1-v10\n${CYAN}2) ${GREEN}Выбрать и установить стратегию для ${NC}YouTube\n${CYAN}3) ${GREEN}Выбрать и установить стратегию для ${NC}игр"
+echo -e "${CYAN}4) ${NC}$RKN_TEXT_MENU${NC}\n${CYAN}5) ${GREEN}Обновить список исключений${NC}"; if grep -q -F -- "--wssize 1:6" "$CONF"; then WSSIZE_MENU_TEXT="${GREEN}Удалить из стратегии блок с ${NC}--wssize 1:6"; else WSSIZE_MENU_TEXT="${GREEN}Добавить в стратегию блок с ${NC}--wssize 1:6"; fi
 if grep -q -F -- "--methodeol" "$CONF"; then methodeol_MENU_TEXT="${GREEN}Удалить из стратегии блок с ${NC}--methodeol"; else methodeol_MENU_TEXT="${GREEN}Добавить в стратегию блок с ${NC}--methodeol"; fi
-echo -e "${CYAN}7) ${WSSIZE_MENU_TEXT}${NC}"; echo -e "${CYAN}8) ${methodeol_MENU_TEXT}${NC}"; if grep -q "^#udp443" $CONF; then echo -e "${CYAN}9) ${GREEN}Удалить из стратегии блок с ${NC}--filter-udp=443"; else echo -e "${CYAN}9) ${GREEN}Добавить в стратегию блок с ${NC}--filter-udp=443"; fi
-echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${YELLOW}Выберите пункт:${NC} "; read choiceST; case "$choiceST" in 1) strategy_CHOUSE;; 2) flowseal_menu;; 3) choose_strategy_manual;; 4) fix_GAME;;
-5) toggle_rkn_bypass; continue;; 6) echo -e "\n${MAGENTA}Обновляем список исключений${NC}\n${CYAN}Останавливаем ${NC}Zapret"; /etc/init.d/zapret stop >/dev/null 2>&1; echo -e "${CYAN}Добавляем домены в исключения${NC}"
+echo -e "${CYAN}6) ${WSSIZE_MENU_TEXT}${NC}"; echo -e "${CYAN}7) ${methodeol_MENU_TEXT}${NC}"; if grep -q "^#udp443" $CONF; then echo -e "${CYAN}8) ${GREEN}Удалить из стратегии блок с ${NC}--filter-udp=443"; else echo -e "${CYAN}8) ${GREEN}Добавить в стратегию блок с ${NC}--filter-udp=443"; fi
+echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${YELLOW}Выберите пункт:${NC} "; read choiceST; case "$choiceST" in 1) strategy_CHOUSE;; 2) choose_strategy_manual;; 3) fix_GAME;;
+4) toggle_rkn_bypass; continue;; 5) echo -e "\n${MAGENTA}Обновляем список исключений${NC}\n${CYAN}Останавливаем ${NC}Zapret"; /etc/init.d/zapret stop >/dev/null 2>&1; echo -e "${CYAN}Добавляем домены в исключения${NC}"
 rm -f "$EXCLUDE_FILE"; wget -q -U "Mozilla/5.0" -O "$EXCLUDE_FILE" "$EXCLUDE_URL" || echo -e "\n${RED}Не удалось загрузить exclude файл${NC}\n"; echo -e "${CYAN}Перезапускаем ${NC}Zapret"; ZAPRET_RESTART; echo -e "${GREEN}Список исключений обновлён!${NC}\n"; PAUSE;;
-7) if grep -q -F -- "--wssize 1:6" "$CONF"; then remove_wssize; else add_wssize; fi; continue;; 8) if grep -q -F -- "--methodeol" "$CONF"; then remove_methodeol; else add_methodeol; fi; continue;; 
-9) if grep -q "^#udp443" $CONF; then echo -e "\n${MAGENTA}Удаляем блок с --filter-udp=443\n${CYAN}Удаляем блок из стратегии\nПерезапускаем ${NC}Zapret"; sed -i '/^#udp443$/,+6d' $CONF; ZAPRET_RESTART; echo -e "${GREEN}Блок с ${NC}--filter-udp=443${GREEN} удалён!${NC}\n"; PAUSE
+6) if grep -q -F -- "--wssize 1:6" "$CONF"; then remove_wssize; else add_wssize; fi; continue;; 7) if grep -q -F -- "--methodeol" "$CONF"; then remove_methodeol; else add_methodeol; fi; continue;; 
+8) if grep -q "^#udp443" $CONF; then echo -e "\n${MAGENTA}Удаляем блок с --filter-udp=443\n${CYAN}Удаляем блок из стратегии\nПерезапускаем ${NC}Zapret"; sed -i '/^#udp443$/,+6d' $CONF; ZAPRET_RESTART; echo -e "${GREEN}Блок с ${NC}--filter-udp=443${GREEN} удалён!${NC}\n"; PAUSE
 else echo -e "\n${MAGENTA}Добавляем блок с --filter-udp=443\n${CYAN}Добавляем блок в стратегию\nПерезапускаем ${NC}Zapret"
 sed -i "/^[[:space:]]*option NFQWS_OPT '/a\\#udp443\\n--filter-udp=443\\n--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt\\n--dpi-desync=fake\\n--dpi-desync-repeats=11\\n--dpi-desync-fake-quic=/opt/zapret/files/fake/quic_initial_www_google_com.bin\\n--new" $CONF
 ZAPRET_RESTART; echo -e "${GREEN}Блок с ${NC}--filter-udp=443${GREEN} добавлен!${NC}\n"; PAUSE; fi ;; *) return;; esac; done }
@@ -1026,10 +1028,36 @@ echo -e "\n${MAGENTA}Включаем IPv6 в Zapret${NC}"; ZAPRET_RESTART; echo
 # Hosts menu
 # ==========================================
 hosts_reset() { echo -e "\n${MAGENTA}Восстанавливаем hosts${NC}"; : > /etc/hosts; echo -e "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters" > /etc/hosts; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}восстановлен!${NC}\n"; PAUSE; }
-add_block() { printf '%b\n' "$1" | while IFS= read -r line; do [ -z "$line" ] && continue; grep -Fxq "$line" "$HOSTS_FILE" || echo "$line" >> "$HOSTS_FILE"; done; }
+# Удалить строки hosts с этими именами или точным текстом маркера/строки блока
+_hosts_strip_block() {
+	local tmp="$HOSTS_FILE.strip.$$"
+	printf '%b\n' "$1" | awk '
+		NR==FNR {
+			if ($0 ~ /^[[:space:]]*#/ || $0 == "") { if ($0 != "") mark[$0]=1; next }
+			line[$0]=1
+			for (i = 2; i <= NF; i++) dom[$i]=1
+			next
+		}
+		{
+			if (mark[$0] || line[$0]) next
+			skip=0
+			if ($0 !~ /^[[:space:]]*#/) {
+				for (i = 2; i <= NF; i++) if (dom[$i]) { skip=1; break }
+			}
+			if (!skip) print
+		}
+	' - "$HOSTS_FILE" > "$tmp" && mv "$tmp" "$HOSTS_FILE"
+}
+add_block() {
+	_hosts_strip_block "$1"
+	printf '%b\n' "$1" | while IFS= read -r line; do
+		[ -z "$line" ] && continue
+		grep -Fxq "$line" "$HOSTS_FILE" || printf '%s\n' "$line" >> "$HOSTS_FILE"
+	done
+}
 add_GEO_HOSTS() { echo -e "\n${MAGENTA}Заменяем hosts на GeoHide hosts${NC}"; : > /etc/hosts; echo -e "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters" > /etc/hosts
 wget -q -U "Mozilla/5.0" -O - "$GEO_HOSTS" >> /etc/hosts; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}заменён на ${NC}GeoHide hosts${GREEN}!${NC}\n"; PAUSE; }
-remove_block() { printf '%b\n' "$1" | while IFS= read -r line; do [ -z "$line" ] && continue; sed -i "\|^$line$|d" "$HOSTS_FILE"; done; }
+remove_block() { _hosts_strip_block "$1"; }
 toggle_block() {
 	if status_block "$1"; then
 		remove_block "$1"
@@ -1066,7 +1094,18 @@ echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${
 /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}заменён на ${NC}Mafioznik hosts${GREEN}!${NC}\n"; PAUSE;; 14) echo -e "\n${MAGENTA}Заменяем hosts на Malw.link hosts${NC}"
 wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_malw.link.txt >/dev/null 2>&1 || { echo -e "\n${RED}Не удалось скачать файл hosts${NC}\n"; PAUSE; }
 /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}заменён на ${NC}Malw.link hosts${GREEN}!${NC}\n"; PAUSE;; 15) hosts_reset;; *) break;; esac; done; }
-status_block() { local line; while IFS= read -r line; do [ -z "$line" ] && continue; grep -Fxq "$line" "$HOSTS_FILE" || return 1; done <<EOF
+status_block() {
+	# Тег включён, если есть его маркер (#Nalog, #githubusercontent.com, …)
+	local marker line
+	marker=$(printf '%b\n' "$1" | awk '/^[[:space:]]*#/ { print; exit }')
+	if [ -n "$marker" ]; then
+		grep -Fxq "$marker" "$HOSTS_FILE"
+		return $?
+	fi
+	while IFS= read -r line; do
+		[ -z "$line" ] && continue
+		grep -Fxq "$line" "$HOSTS_FILE" || return 1
+	done <<EOF
 $(printf '%b\n' "$1")
 EOF
 }
@@ -1083,7 +1122,7 @@ if echo "$line" | grep -q "\[ OK \]"; then echo -e "${GREEN}${line}${NC}"; elif 
 run_test_by_domain() { MODE="domain"; clear; echo -e "${MAGENTA}Тестирование стратегий по домену${NC}\n\n${CYAN}Введите один или несколько доменов через пробел (${NC}x.com vk.com${CYAN})${NC}\n"; echo -ne "${YELLOW}Введите домен: ${NC}"; read -r INPUT
 INPUT="$(printf "%s" "$INPUT" | tr -s ' ')"; [ -z "$INPUT" ] && return; URLS=""; COUNT=0; for item in $INPUT; do item="$(printf "%s" "$item" | tr -d ' \t\r\n')"; [ -z "$item" ] && continue; case "$item" in http://*|https://*) TARGET="$item" ;; *) TARGET="https://$item" ;; esac
 HOST=$(printf "%s\n" "$TARGET" | sed -E 's#^https?://##; s#/.*##'); URLS="${URLS}${HOST}|https://${HOST}/"$'\n'; COUNT=$((COUNT+1)); done; TOTAL="$COUNT"; [ "$TOTAL" -eq 0 ] && { echo -e "\n${RED}Домены введены неверно${NC}\n"; PAUSE; return; }
-RESULTS="$RES_DOMAIN"; : > "$RESULTS"; : > "$STR_FILE"; cp "$CONF" "$BACK"; echo -e "\n${CYAN}Собираем ${NC}Flowseal${CYAN} стратегии${NC}"; download_strategies 1; cp "$OUT" "$STR_FILE"
+RESULTS="$RES_DOMAIN"; : > "$RESULTS"; : > "$STR_FILE"; cp "$CONF" "$BACK"
 echo -e "${CYAN}Собираем ${NC}v${CYAN} стратегии${NC}"; for N in $(seq 1 100); do strategy_v$N >> "$STR_FILE" 2>/dev/null || break; done; sed -i '/#Y/d' "$STR_FILE"; LINES=$(grep -n '^#' "$STR_FILE" | cut -d: -f1); CUR=0; TOTAL_STR=$(grep -c '^#' "$STR_FILE")
 echo -e "${CYAN}Найдено стратегий:${NC} $TOTAL_STR\n${CYAN}Доменов для теста:${NC} $TOTAL"; check_zpr_off; echo "$LINES" | while read -r START; do CUR=$((CUR+1)); NEXT=$(echo "$LINES" | awk -v s="$START" '$1>s{print;exit}'); if [ -z "$NEXT" ]; then
 sed -n "${START},\$p" "$STR_FILE" > "$TEMP_FILE"; else sed -n "${START},$((NEXT-1))p" "$STR_FILE" > "$TEMP_FILE"; fi; BLOCK=$(cat "$TEMP_FILE"); NAME=$(head -n1 "$TEMP_FILE"); NAME="${NAME#\#}"; awk -v block="$BLOCK" 'BEGIN{skip=0}
@@ -1118,20 +1157,8 @@ show_single_result() { clear; echo -e "${MAGENTA}Результат тестир
 cat "$FILE" > "$TMP_RES"; awk '!seen && /^Контрольный тест/ {print; seen=1; next} !/^Контрольный тест/ {print}' "$TMP_RES" > "${TMP_RES}.u"; mv "${TMP_RES}.u" "$TMP_RES"; TOTAL=$(head -n1 "$TMP_RES" | cut -d'/' -f2); awk -F'[/ ]' '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/){print $i "/" $(i+1), $0; break}}' "$TMP_RES" |
 sort -nr -k1,1 | while read -r line; do COUNT=$(echo "$line" | awk -F'/' '{print $1}'); TEXT=$(echo "$line" | cut -d' ' -f2-); if echo "$TEXT" | grep -q Zapret; then COLOR="$CYAN"; elif [ "$COUNT" -eq "$TOTAL" ]; then COLOR="$GREEN"; elif [ "$COUNT" -gt $((TOTAL/2)) ]; then
 COLOR="$YELLOW"; else COLOR="$RED"; fi; echo -e "${COLOR}${TEXT}${NC}"; done; rm -f "$TMP_RES"; [ -z "$NO_PAUSE" ] && echo && PAUSE; }
-run_test_flowseal() { clear; echo -e "${MAGENTA}Тестирование стратегий Flowseal${NC}\n\n${CYAN}Собираем стратегии для теста${NC}"; RESULTS="/opt/zapret/tmp/results_flowseal.txt"; rm -rf "$TMP_SF"
-download_strategies 1; cp "$OUT" "$STR_FILE"; cp "$CONF" "$BACK"; sed -i '/#Y/d' "$STR_FILE"; run_test_core "$RESULTS"; }
 run_test_versions() { clear; echo -e "${MAGENTA}Тестирование стратегий v${NC}\n\n${CYAN}Собираем стратегии для теста${NC}"; RESULTS="/opt/zapret/tmp/results_versions.txt"; : > "$STR_FILE"; cp "$CONF" "$BACK"
 for N in $(seq 1 100); do strategy_v$N >> "$STR_FILE" 2>/dev/null || break; done; sed -i '/#Y/d' "$STR_FILE"; run_test_core "$RESULTS"; }
-run_all_tests() { clear; echo -e "${MAGENTA}Тестирование всех стратегий${NC}\n"; RESULTS="/opt/zapret/tmp/results_all.txt"; : > "$STR_FILE"; [ -f "$BACK" ] || cp "$CONF" "$BACK"; echo -e "${CYAN}Собираем ${NC}Flowseal${CYAN} стратегии${NC}"
-download_strategies 1; cat "$OUT" >> "$STR_FILE"; echo -e "${CYAN}Собираем ${NC}v${CYAN} стратегии${NC}"; for N in $(seq 1 100); do strategy_v$N >> "$STR_FILE" 2>/dev/null || break; done; sed -i '/#Y/d' "$STR_FILE"; LINES=$(grep -n '^#' "$STR_FILE" | cut -d: -f1)
-CUR=0; TOTAL_STR=$(grep -c '^#' "$STR_FILE"); echo -e "${CYAN}Найдено стратегий:${NC} $TOTAL_STR"; prepare_urls || return 1; URLS="$(cat "$OUT_DPI")"; TOTAL=$(grep -c "|" "$OUT_DPI"); echo -e "${CYAN}Доменов для теста:${NC} $TOTAL"
-check_zpr_off; echo "$LINES" | while read -r START; do CUR=$((CUR+1)); NEXT=$(echo "$LINES" | awk -v s="$START" '$1>s{print;exit}'); if [ -z "$NEXT" ]; then sed -n "${START},\$p" "$STR_FILE" > "$TEMP_FILE"; else sed -n "${START},$((NEXT-1))p" "$STR_FILE" > "$TEMP_FILE"; fi
-BLOCK=$(cat "$TEMP_FILE"); NAME=$(head -n1 "$TEMP_FILE"); NAME="${NAME#\#}"; awk -v block="$BLOCK" 'BEGIN{skip=0}
-/option NFQWS_OPT '\''/ {printf "\toption NFQWS_OPT '\''\n%s\n'\''\n", block; skip=1; next}
-skip && /^'\''$/ {skip=0; next}
-!skip {print}' "$CONF" > "${CONF}.tmp" && mv "${CONF}.tmp" "$CONF"; echo -e "\n${CYAN}Тестируем стратегию:${NC} ${YELLOW}${NAME}${NC} ($CUR/$TOTAL_STR)"; ZAPRET_RESTART; OK=0; LOG_TMP="/tmp/zapret_log_${CUR}"; : > "$LOG_TMP"; check_all_urls
-if [ "$OK" -eq "$TOTAL" ]; then COLOR="${GREEN}"; elif [ "$OK" -ge $((TOTAL/2)) ]; then COLOR="${YELLOW}"; else COLOR="${RED}"; fi; echo -e "${CYAN}Результат:${NC} ${COLOR}$OK/$TOTAL${NC}"; { echo "${NAME} → ${OK}/${TOTAL}"; cat "$LOG_TMP"; echo; } >> "$RESULTS"; done
-sort -t'/' -k1 -nr "$RESULTS" -o "$RESULTS"; [ -f "$BACK" ] && mv -f "$BACK" "$CONF"; ZAPRET_RESTART; show_single_result "$RESULTS"; }
 run_test_core() { local RESULTS="$1"; prepare_urls || return 1; URLS="$(cat "$OUT_DPI")"; TOTAL=$(grep -c "|" "$OUT_DPI"); TOTAL_STR=$(grep -c '^#' "$STR_FILE")
 echo -e "${CYAN}Найдено стратегий: ${NC}$TOTAL_STR"; echo -e "${CYAN}Доменов для теста:${NC} $TOTAL"; : > "$RESULTS"; check_zpr_off; LINES=$(grep -n '^#' "$STR_FILE" | cut -d: -f1); CUR=0
 echo "$LINES" | while read START; do CUR=$((CUR+1)); NEXT=$(echo "$LINES" | awk -v s="$START" '$1>s{print;exit}'); if [ -z "$NEXT" ]; then
@@ -1146,14 +1173,13 @@ TEST_menu() { [ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не ус
 [ -f "$CONF" ] && line=$(grep -m1 '^#general' "$CONF") && [ -n "$line" ] && echo -e "${YELLOW}Используется стратегия:${NC}  ${CYAN}${line#?}$(grep -o -E '^#Gv[0-9][0-9]*' "$CONF" | sed 's/^#/ \/ /' | head -n1)${NC}"
 if [ -f "$CONF" ]; then current="$ver$( [ -n "$ver" ] && [ -n "$yv_ver" ] && echo " / " )$yv_ver"; DV=$(grep -o -E '^#[[:space:]]*Dv[0-9][0-9]*' "$CONF" | sed 's/^#[[:space:]]*/\/ /' | head -n1); GV=$(grep -o -E '^#Gv[0-9][0-9]*' "$CONF" | sed 's/^#/\/ /' | head -n1); if [ -n "$current" ]
 then echo -e "${YELLOW}Используется стратегия:${NC}  ${CYAN}$current${DV:+ $DV}${GV:+ $GV}${RKN_STATUS:+ $RKN_STATUS}${NC}"; elif [ -n "$RKN_STATUS" ]; then echo -e "${YELLOW}Используется стратегия:${NC}  ${CYAN}РКН${DV:+ $DV}${GV:+ $GV}${NC}"; fi; fi
-STATUS_V=""; STATUS_FLOW=""; STATUS_DOMAIN=""; if [ -s "$RES3" ]; then STATUS_V="${GREEN}v${NC}"; STATUS_FLOW="${GREEN}Flowseal${NC}"; elif [ -s "$RES2" ] || [ -s "$RES1" ]; then [ -s "$RES2" ] && STATUS_V="${GREEN}v${NC}" || STATUS_V="${RED}v${NC}"
-[ -s "$RES1" ] && STATUS_FLOW="${GREEN}Flowseal${NC}" || STATUS_FLOW="${RED}Flowseal${NC}"; else STATUS_V="${RED}v${NC}"; STATUS_FLOW="${RED}Flowseal${NC}"; fi; [ -s "$RES_DOMAIN" ] && STATUS_DOMAIN="${GREEN}Domain${NC}" || STATUS_DOMAIN="${RED}Domain${NC}"
-echo -e "${YELLOW}Тест пройден:${NC} ${STATUS_V} | ${STATUS_FLOW} | ${STATUS_DOMAIN}\n\n${CYAN}1) ${GREEN}Тестировать стратегии ${NC}v\n${CYAN}2) ${GREEN}Тестировать стратегии ${NC}Flowseal\n${CYAN}3) ${GREEN}Тестировать ${NC}v${GREEN} и ${NC}Flowseal${GREEN} стратегии${NC}"
-echo -e "${CYAN}4) ${GREEN}Тестировать ${NC}текущую${GREEN} стратегию ${NC}\n${CYAN}5) ${GREEN}Тестировать стратегии ${NC}по домену${NC}\n${CYAN}6) ${GREEN}Тестировать стратегии для ${NC}YouTube"; 
+STATUS_V=""; STATUS_DOMAIN=""; [ -s "$RES2" ] && STATUS_V="${GREEN}v${NC}" || STATUS_V="${RED}v${NC}"; [ -s "$RES_DOMAIN" ] && STATUS_DOMAIN="${GREEN}Domain${NC}" || STATUS_DOMAIN="${RED}Domain${NC}"
+echo -e "${YELLOW}Тест пройден:${NC} ${STATUS_V} | ${STATUS_DOMAIN}\n\n${CYAN}1) ${GREEN}Тестировать стратегии ${NC}v"
+echo -e "${CYAN}2) ${GREEN}Тестировать ${NC}текущую${GREEN} стратегию ${NC}\n${CYAN}3) ${GREEN}Тестировать стратегии ${NC}по домену${NC}\n${CYAN}4) ${GREEN}Тестировать стратегии для ${NC}YouTube"; 
 if [ -s "$RES_DOMAIN" ]; then echo -e "${CYAN}8) ${GREEN}Результаты тестирования по домену${NC}"; fi
-if [ -s "$RES1" ] || [ -s "$RES2" ] || [ -s "$RES3" ]; then echo -e "${CYAN}9) ${GREEN}Результаты тестирования стратегий${NC}"; fi
-if [ -s "$RES1" ] || [ -s "$RES2" ] || [ -s "$RES3" ] || [ -s "$RES_DOMAIN" ]; then echo -e "${CYAN}0) ${GREEN}Удалить результаты тестирования${NC}"; fi; echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${YELLOW}Выберите пункт:${NC} ";read -r t; case "$t" in
-1) rm -f "$RES3"; run_test_versions;; 2) rm -f "$RES3"; run_test_flowseal;; 3) rm -f "$RES1" "$RES2" "$RES3"; run_all_tests;; 4) check_current_strategy;; 5) run_test_by_domain;; 6) auto_stryou;;
+if [ -s "$RES2" ]; then echo -e "${CYAN}9) ${GREEN}Результаты тестирования стратегий${NC}"; fi
+if [ -s "$RES2" ] || [ -s "$RES_DOMAIN" ]; then echo -e "${CYAN}0) ${GREEN}Удалить результаты тестирования${NC}"; fi; echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${YELLOW}Выберите пункт:${NC} ";read -r t; case "$t" in
+1) run_test_versions;; 2) check_current_strategy;; 3) run_test_by_domain;; 4) auto_stryou;;
 8) show_domain_results;; 9) show_test_results;; 0) rm -f /opt/zapret/tmp/results*; echo -e "\n${GREEN}Результаты тестирования удалены!${NC}\n"; PAUSE;; *) break;; esac; done; }
 # ==========================================
 # Системная информация

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.2.4">
+  <meta name="routerich-version" content="1.2.5">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -253,6 +253,7 @@
               <button type="button" class="zp-toggle" data-gv="2">Gv2</button>
               <button type="button" class="zp-toggle" data-gv="3">Gv3</button>
               <button type="button" class="zp-toggle" data-gv="4">Gv4</button>
+              <button type="button" class="zp-toggle" data-gv="xtreme" title="Широкие порты для проверки игр">Xtreme</button>
             </div>
           </div>
           <div class="zp-section">
@@ -320,11 +321,10 @@
           </div>
           <div class="zp-section">
             <h3>Тест стратегии из списка</h3>
-            <p class="zp-muted">Выберите одну стратегию v или Flowseal — она временно применится, пройдёт проверка доменов, затем конфиг восстановится.</p>
+            <p class="zp-muted">Выберите одну стратегию v — она временно применится, пройдёт проверка доменов, затем конфиг восстановится.</p>
             <div class="zp-test-strategy-row">
-              <select id="zapret-test-strategy-type" class="saved-select">
-                <option value="versions">Стратегии v (v1–v9)</option>
-                <option value="flowseal">Flowseal</option>
+              <select id="zapret-test-strategy-type" class="saved-select" hidden>
+                <option value="versions" selected>Стратегии v (v1–v10)</option>
               </select>
               <select id="zapret-test-strategy-select" class="saved-select">
                 <option value="">— загрузка списка —</option>
@@ -347,7 +347,7 @@
           </div>
           <div class="zp-section">
             <h3>Массовые тесты Zapret-Manager</h3>
-            <p class="zp-muted">Сводка полного теста стратегий (v / Flowseal), если он был запущен через оригинальный Zapret-Manager на роутере.</p>
+            <p class="zp-muted">Сводка полного теста стратегий v, если он был запущен через оригинальный Zapret-Manager на роутере.</p>
             <div id="zapret-test-saved" class="zp-test-saved"></div>
             <div class="zp-actions">
               <button type="button" class="btn btn-outline btn-sm" id="zapret-test-refresh-saved">Обновить</button>

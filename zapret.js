@@ -20,8 +20,6 @@ let showZapret2DisabledBanner = false;
 
 const TEST_TYPE_LABELS = {
   versions: 'Стратегии v',
-  flowseal: 'Flowseal',
-  all: 'v + Flowseal',
   domain: 'По домену'
 };
 
@@ -257,7 +255,7 @@ function renderOverview(d) {
     badge(!!d.strategy.youtube, 'YT: ' + fmtStrategy(d.strategy.youtube)) +
     badge(!!d.strategy.discord, 'Discord: ' + fmtStrategy(d.strategy.discord)) +
     badge(!!d.strategy.games, 'Игры: ' + fmtStrategy(d.strategy.games)) +
-    badge(!!d.strategy.flowseal, fmtStrategy(d.strategy.flowseal)) +
+    badge(!!d.strategy.xtreme, 'Xtreme') +
     badge(d.strategy.rkn, 'RKN') +
     badge(d.strategy.wssize, 'wssize') +
     badge(d.strategy.methodeol, 'methodeol') +
@@ -279,8 +277,6 @@ function renderTestHistory(history) {
   const parts = [];
   if (history.panel) parts.push('панель');
   if (history.versions) parts.push('v');
-  if (history.flowseal) parts.push('Flowseal');
-  if (history.all) parts.push('all');
   if (history.domain) parts.push('domain');
   if (!parts.length) return '';
   return '<p class="zp-muted">Сохранённые тесты: ' + parts.join(', ') + '</p>';
@@ -456,8 +452,12 @@ function syncStrategyUI(d) {
   });
 
   document.querySelectorAll('[data-gv]').forEach((btn) => {
+    if (btn.dataset.gv === 'xtreme') {
+      btn.classList.toggle('active', !!s.xtreme);
+      return;
+    }
     const raw = (s.games || '').replace(/^#?/, '');
-    const num = raw.replace(/^Gv/i, '');
+    const num = raw.replace(/^Gv/i, '').replace(/Xtreme$/i, '');
     btn.classList.toggle('active', btn.dataset.gv === num && !!num);
   });
   document.querySelectorAll('[data-toggle]').forEach((btn) => {
@@ -517,8 +517,14 @@ async function zapretGet(action, params) {
       if (val != null && val !== '') qs.set(key, String(val));
     });
   }
-  const res = await fetch('/cgi-bin/zapret-api?' + qs.toString());
-  return parseZapretResponse(res);
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), action === 'youtube-list' ? 25000 : 20000) : null;
+  try {
+    const res = await fetch('/cgi-bin/zapret-api?' + qs.toString(), ctrl ? { signal: ctrl.signal } : undefined);
+    return parseZapretResponse(res);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function zapretApply(target, value) {
@@ -545,15 +551,6 @@ async function zapretTest(mode, options) {
   return parseZapretResponse(res);
 }
 
-async function prepareFlowsealStrategies() {
-  const res = await fetch('/cgi-bin/zapret-api', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'prepare-flowseal' })
-  });
-  return parseZapretResponse(res);
-}
-
 function fillStrategySelect(listSelect, strategies) {
   listSelect.innerHTML = '<option value="">— выберите стратегию —</option>';
   strategies.forEach((name) => {
@@ -575,20 +572,7 @@ async function loadTestStrategies(type, force) {
   listSelect.disabled = true;
   setZapretError('');
   try {
-    let data = await zapretGet('test-strategies', { type: selectedType });
-
-    if (selectedType === 'flowseal' && data.ok && data.data && data.data.ready === false) {
-      setZapretStatus('Flowseal (1–2 мин)…', 'info', { title: 'Скачивание', progress: true });
-      const prep = await prepareFlowsealStrategies();
-      if (!prep.ok) {
-        listSelect.innerHTML = '<option value="">— ошибка скачивания —</option>';
-        setZapretError(prep.error || 'Не удалось скачать Flowseal');
-        setZapretStatus('');
-        return;
-      }
-      data = await zapretGet('test-strategies', { type: 'flowseal' });
-      setZapretStatus('Список Flowseal', 'success', { title: 'Загружено' });
-    }
+    const data = await zapretGet('test-strategies', { type: 'versions' });
 
     if (!data.ok || !data.data || !Array.isArray(data.data.strategies)) {
       listSelect.innerHTML = '<option value="">— ошибка загрузки —</option>';
@@ -1104,8 +1088,6 @@ function initZapretUi() {
     if (zapretData) {
       if (zapretData.test_history) {
         zapretData.test_history.versions = false;
-        zapretData.test_history.flowseal = false;
-        zapretData.test_history.all = false;
         zapretData.test_history.domain = false;
       }
       renderOverview(zapretData);

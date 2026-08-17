@@ -177,7 +177,7 @@ api_install_zapret() {
 }
 
 api_status() {
-	ensure_github_hosts 2>/dev/null || true
+	# Не вызывать ensure_github_hosts здесь: статус после «выкл. GitHub» снова дописывал блок.
 	uci_init_ran=0
 	uci_ready=0
 	if [ -f /etc/init.d/zapret ]; then
@@ -220,7 +220,6 @@ api_status() {
 
 	dv=$(_detect_discord_ver)
 	gv=$(grep -o -E '^#Gv[0-9]+' "$CONF" 2>/dev/null | head -n1 | sed 's/^#//')
-	general=$(grep -m1 '^#general' "$CONF" 2>/dev/null | sed 's/^#//')
 
 	jq -n \
 		--arg manager_version "$ZAPRET_MANAGER_VERSION" \
@@ -234,7 +233,6 @@ api_status() {
 		--arg youtube "${yv_ver:-}" \
 		--arg discord "$dv" \
 		--arg games "$gv" \
-		--arg flowseal "$general" \
 		--argjson rkn "$([ -n "$RKN_STATUS" ] && echo 1 || echo 0)" \
 		--argjson wssize "$(grep -qF -- '--wssize 1:6' "$CONF" 2>/dev/null && echo 1 || echo 0)" \
 		--argjson methodeol "$(grep -qF -- '--methodeol' "$CONF" 2>/dev/null && echo 1 || echo 0)" \
@@ -259,9 +257,8 @@ api_status() {
 		--argjson block_supercell "$(block_active "$SCell" && echo 1 || echo 0)" \
 		--argjson block_github "$(block_active "$GITH" && echo 1 || echo 0)" \
 		--argjson test_versions "$([ -s "$RES2" ] && echo 1 || echo 0)" \
-		--argjson test_flowseal "$([ -s "$RES1" ] && echo 1 || echo 0)" \
-		--argjson test_all "$([ -s "$RES3" ] && echo 1 || echo 0)" \
 		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
+		--argjson xtreme "$(gv_xtreme_active && echo 1 || echo 0)" \
 		--argjson panel_tests "$([ -d "$PANEL_TEST_DIR" ] && ls "$PANEL_TEST_DIR"/panel_test_*.json >/dev/null 2>&1 && echo 1 || echo 0)" \
 		--argjson zapret2 "$zapret2_json" \
 		--argjson uci_initialized "$uci_init_ran" \
@@ -276,8 +273,9 @@ api_status() {
 			latest_version: $latest,
 			nfq: {running: ($nfq_run | tonumber), total: ($nfq_all | tonumber)},
 			strategy: {
-				base: $base, youtube: $youtube, discord: $discord, games: $games, flowseal: $flowseal,
-				rkn: ($rkn == 1), wssize: ($wssize == 1), methodeol: ($methodeol == 1), udp443: ($udp443 == 1)
+				base: $base, youtube: $youtube, discord: $discord, games: $games,
+				rkn: ($rkn == 1), wssize: ($wssize == 1), methodeol: ($methodeol == 1), udp443: ($udp443 == 1),
+				xtreme: ($xtreme == 1)
 			},
 			hosts_preset: $hosts_preset,
 			hosts_blocks: {
@@ -294,8 +292,7 @@ api_status() {
 			moonlight_bypass: ($moonlight_bypass == 1),
 			backup: {exists: ($backup == 1), date: $backup_date},
 			test_history: {
-				versions: ($test_versions == 1), flowseal: ($test_flowseal == 1),
-				all: ($test_all == 1), domain: ($test_domain == 1), panel: ($panel_tests == 1)
+				versions: ($test_versions == 1), domain: ($test_domain == 1), panel: ($panel_tests == 1)
 			},
 			zapret2: $zapret2
 		}'
@@ -321,19 +318,13 @@ api_parse_results_file() {
 
 api_test_results() {
 	versions=$(api_parse_results_file "$RES2")
-	flowseal=$(api_parse_results_file "$RES1")
-	all=$(api_parse_results_file "$RES3")
 	domain=$(api_parse_results_file "$RES_DOMAIN")
 	jq -n \
 		--argjson versions "$versions" \
-		--argjson flowseal "$flowseal" \
-		--argjson all "$all" \
 		--argjson domain "$domain" \
 		'{
 			items: [
 				({type: "versions", strategies: $versions} | select(.strategies | length > 0)),
-				({type: "flowseal", strategies: $flowseal} | select(.strategies | length > 0)),
-				({type: "all", strategies: $all} | select(.strategies | length > 0)),
 				({type: "domain", strategies: $domain} | select(.strategies | length > 0))
 			]
 		}'
@@ -342,15 +333,10 @@ api_test_results() {
 api_test_strategy_list() {
 	strategy_type=$(get_query_param "type" "")
 	case "$strategy_type" in
-		versions|flowseal) ;;
-		*) json_error "type=versions|flowseal"; return ;;
+		versions|"") ;;
+		*) json_error "type=versions"; return ;;
 	esac
-	list_test_strategies_api "$strategy_type" || { json_error "Не удалось получить список стратегий"; return; }
-}
-
-api_prepare_flowseal() {
-	require_zapret_uci || return
-	prepare_flowseal_strategies_api || { json_error "Не удалось скачать стратегии Flowseal. Проверьте доступ к GitHub."; return; }
+	list_test_strategies_api "versions" || { json_error "Не удалось получить список стратегий"; return; }
 }
 
 api_test_run() {
@@ -372,8 +358,8 @@ api_test_run() {
 		strategy)
 			[ -n "$strategy_type" ] && [ -n "$strategy_name" ] || { json_error "Укажите type и name стратегии"; return; }
 			case "$strategy_type" in
-				versions|flowseal) ;;
-				*) json_error "type: versions|flowseal"; return ;;
+				versions|"") ;;
+				*) json_error "type: versions"; return ;;
 			esac
 			test_single_strategy_api "$strategy_type" "$strategy_name" || { json_error "Стратегия не найдена или тест не удался"; return; }
 			;;
@@ -438,6 +424,9 @@ api_apply() {
 		games)
 			case "$value" in
 				[1-4]) zapret_exec fix_GAME "$value" ;;
+				xtreme)
+					zapret_exec Gv_Xtreme || { json_error "Сначала включите игровую стратегию Gv"; return; }
+					;;
 				remove)
 					found=0
 					for i in 1 2 3 4; do
@@ -450,7 +439,7 @@ api_apply() {
 					[ "$found" -eq 1 ] || { json_error "Игровая стратегия не установлена"; return; }
 					;;
 				*)
-					json_error "Игровая стратегия 1-4 или remove"; return ;;
+					json_error "Игровая стратегия 1-4, xtreme или remove"; return ;;
 			esac
 			;;
 		youtube)
@@ -608,7 +597,7 @@ case "$REQUEST_METHOD" in
 			apply) api_apply ;;
 			install) api_install_zapret ;;
 			test) api_test_run | json_ok ;;
-			prepare-flowseal) api_prepare_flowseal | json_ok ;;
+
 			*) json_error "Неизвестный POST action" ;;
 		esac
 		;;
