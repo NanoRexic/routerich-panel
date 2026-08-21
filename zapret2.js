@@ -316,11 +316,11 @@
     return String(s || '').replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
   }
 
-  async function embedApply(extra, created, mode) {
+  async function embedApply(extra, created, mode, allCount) {
     if (busy) return;
     busy = true;
     showError('');
-    showStatus('Встройка', 'info', { progress: true, title: 'Применение' });
+    showStatus(allCount ? 'Встройка всех…' : 'Встройка', 'info', { progress: true, title: 'Применение' });
     try {
       const res = await apiApply('bcw-embed', extra);
       if (!res.ok) {
@@ -339,7 +339,10 @@
         const sel = document.getElementById('z2-embed-target');
         if (sel) sel.value = created;
       }
-      showStatus(mode === 'new' ? 'Профиль ' + created : 'Встроено', 'success', { title: 'Применено' });
+      const doneMsg = mode === 'new'
+        ? 'Профиль ' + created
+        : (allCount ? 'Встроены все' : 'Встроено');
+      showStatus(doneMsg, 'success', { title: 'Применено' });
     } catch (e) {
       showError('Ошибка сети: ' + e.message);
       showStatus('');
@@ -1003,18 +1006,27 @@
     const modeSel = document.getElementById('z2-embed-mode');
     if (modeSel) modeSel.addEventListener('change', syncEmbedMode);
     syncEmbedMode();
-    bind('z2-embed-btn', function () {
-      const args = currentArgs();
-      if (!args) {
-        showError('Сначала отметьте стратегию в списке выше');
-        return;
-      }
+    function embedFromSearch(all) {
       const mode = (document.getElementById('z2-embed-mode') || {}).value || 'circular-front';
       const name = ((document.getElementById('z2-embed-name') || {}).value || '').trim();
       const target = (document.getElementById('z2-embed-target') || {}).value || 'youtube';
       if (mode === 'new' && !name) {
         showError('Укажите имя нового профиля');
         return;
+      }
+      let args;
+      if (all) {
+        args = (resultItems || []).filter(Boolean);
+        if (!args.length) {
+          showError('Нет найденных стратегий');
+          return;
+        }
+      } else {
+        args = currentArgs();
+        if (!args) {
+          showError('Сначала отметьте стратегию в списке выше');
+          return;
+        }
       }
       const created = sanitizeProfileName(name);
       const extra = {
@@ -1024,8 +1036,10 @@
         name: name,
         domains: collectBcw().domains
       };
-      embedApply(extra, created, mode);
-    });
+      embedApply(extra, created, mode, all ? args.length : 0);
+    }
+    bind('z2-embed-btn', function () { embedFromSearch(false); });
+    bind('z2-embed-all-btn', function () { embedFromSearch(true); });
 
     const games = document.getElementById('zapret2-panel-games');
     if (games) games.addEventListener('click', function (e) {

@@ -846,19 +846,23 @@ z2_pkg_version() {
 
 z2_embed_into() {
 	target="$1"
-	mode="$2" # circular-front | new
+	mode="$2"
 	raw_args="$3"
 	new_name="$4"
 	domains="$5"
-	inst_lines=$(z2_embed_instances "$raw_args")
-	wss_in=0
-	printf '%s\n' "$inst_lines" | grep -q 'lua-desync=wssize' && wss_in=1
-	inst_lines=$(printf '%s\n' "$inst_lines" | z2_embed_drop_wssize)
-	if ! printf '%s\n' "$inst_lines" | grep -q '^--lua-desync='; then
-		[ "$wss_in" -eq 1 ] || return 1
-	fi
-	label=$(z2_lua_label "$inst_lines")
-	[ -n "$label" ] || label="desync"
+	args_json=$(jq -n --arg a "$raw_args" '[$a]')
+	z2_embed_list "$target" "$mode" "$args_json" "$new_name" "$domains"
+}
+
+z2_embed_list() {
+	target="$1"
+	mode="$2"
+	args_json="$3"
+	new_name="$4"
+	count=$(printf '%s' "$args_json" | jq 'if type=="array" then length else 0 end')
+	case "$count" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$count" -ge 1 ] || return 1
+	style=seq
 	if [ "$mode" = "new" ]; then
 		[ -n "$new_name" ] || new_name="panel_$(date +%H%M%S)"
 		new_name=$(printf '%s' "$new_name" | tr -c 'A-Za-z0-9_' '_' | sed 's/^_//;s/_$//')
@@ -873,53 +877,65 @@ z2_embed_into() {
 		uci -q add_list "zapret2.$new_name.filter_l7=tls"
 		uci -q delete "zapret2.$new_name.hostlist" 2>/dev/null || true
 		uci -q commit zapret2
-		script=$(z2_circ_prefix_lines seq "$wss_in")
-		if printf '%s\n' "$inst_lines" | grep -q '^--lua-desync='; then
-			stamped=$(printf '%s\n' "$inst_lines" | z2_stamp_instances 1)
-			script=$(printf '%s\n%s' "$script" "$stamped")
-		fi
-		z2_set_script "$new_name" "$script"
-		z2_resync_canon "$new_name"
-		tmp="$Z2_TMP/z2-state.$$"
-		jq --arg n "$new_name" --arg st seq \
-			'.profiles[$n].circ_style=$st' \
-			"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
-		z2_apply_circular "$new_name"
-		printf '%s' "$new_name"
-		return 0
+		target="$new_name"
+		pre=$(z2_circ_prefix_lines seq 0 | jq -R -s 'split("\n") | map(select(length>0))')
+		parsed=$(jq -n --argjson pre "$pre" '{prefix:$pre, slots:[]}')
+		z2_state_init
+	else
+		[ -n "$target" ] || return 1
+		z2_ensure_profile_state "$target"
+		style=$(z2_circ_style_get "$target")
+		[ -n "$style" ] || style=seq
+		canon=$(jq -r --arg n "$target" '.profiles[$n].canon // empty' "$Z2_STATE")
+		[ -n "$canon" ] || canon=$(z2_get_script "$target")
+		parsed=$(z2_parse_script "$canon")
+		parsed=$(z2_promote_slots "$parsed")
 	fi
-	[ -n "$target" ] || return 1
-	z2_ensure_profile_state "$target"
-	style=$(z2_circ_style_get "$target")
-	[ -n "$style" ] || style=seq
-	canon=$(jq -r --arg n "$target" '.profiles[$n].canon // empty' "$Z2_STATE")
-	[ -n "$canon" ] || canon=$(z2_get_script "$target")
-	parsed=$(z2_parse_script "$canon")
-	parsed=$(z2_promote_slots "$parsed")
-	wss=0
-	[ "$wss_in" -eq 1 ] && wss=1
-	[ "$(z2_circ_has_wssize "$parsed")" = "true" ] && wss=1
-	parsed=$(z2_ensure_circ_prefix "$parsed" "$style" "$wss")
-	if printf '%s\n' "$inst_lines" | grep -q '^--lua-desync='; then
-		want_fp=$(printf '%s\n' "$inst_lines" | z2_inst_fingerprint)
-		if z2_slot_has_fingerprint "$parsed" "$want_fp"; then
-			return 2
+	wss_any=0
+	[ "$(z2_circ_has_wssize "$parsed")" = "true" ] && wss_any=1
+	new_slots='[]'
+	added=0
+	next_id=$(printf '%s' "$parsed" | jq '[.slots[].id] | max // 0')
+	ei=0
+	while [ "$ei" -lt "$count" ]; do
+		raw_one=$(printf '%s' "$args_json" | jq -r --argjson ei "$ei" '.[$ei] // empty')
+		ei=$((ei + 1))
+		[ -n "$raw_one" ] || continue
+		inst_one=$(z2_embed_instances "$raw_one")
+		printf '%s\n' "$inst_one" | grep -q 'lua-desync=wssize' && wss_any=1
+		inst_one=$(printf '%s\n' "$inst_one" | z2_embed_drop_wssize)
+		printf '%s\n' "$inst_one" | grep -q '^--lua-desync=' || continue
+		fp_one=$(printf '%s\n' "$inst_one" | z2_inst_fingerprint)
+		[ -n "$fp_one" ] || continue
+		check=$(printf '%s' "$parsed" | jq --argjson ns "$new_slots" '.slots = $ns + .slots')
+		if z2_slot_has_fingerprint "$check" "$fp_one"; then
+			continue
 		fi
-		new_id=$(printf '%s' "$parsed" | jq '[.slots[].id] | max // 0')
-		new_id=$((new_id + 1))
-		new_inst=$(printf '%s\n' "$inst_lines" | z2_stamp_instances "$new_id" | jq -R -s 'split("\n") | map(select(length>0))')
-		parsed=$(printf '%s' "$parsed" | jq --argjson inst "$new_inst" --argjson id "$new_id" --arg label "$label" '
-			.slots = [{id:$id, final:false, label:$label, instances:$inst}] + .slots
-		')
-	fi
-	new_canon=$(printf '%s' "$parsed" | jq -r '
-		((.prefix | join("\n")) + "\n" + ([.slots[] | .instances[]] | join("\n")))
-	')
+		next_id=$((next_id + 1))
+		lab=$(z2_lua_label "$inst_one")
+		[ -n "$lab" ] || lab="desync"
+		new_inst=$(printf '%s\n' "$inst_one" | z2_stamp_instances "$next_id" | jq -R -s 'split("\n") | map(select(length>0))')
+		new_slots=$(printf '%s' "$new_slots" | jq --argjson inst "$new_inst" --argjson id "$next_id" --arg label "$lab" \
+			'. + [{id:$id, final:false, label:$label, instances:$inst}]')
+		added=$((added + 1))
+	done
+	[ "$added" -ge 1 ] || return 2
+	parsed=$(z2_restyle_parsed "$parsed" "$style" "$wss_any")
+	parsed=$(printf '%s' "$parsed" | jq --argjson ns "$new_slots" '.slots = $ns + .slots')
+	new_canon=$(printf '%s' "$parsed" | jq -r '((.prefix | join("\n")) + "\n" + ([.slots[] | .instances[]] | join("\n")))')
 	hash=$(z2_hash "$new_canon")
+	z2_set_script "$target" "$new_canon"
+	z2_mkdirs
 	tmp="$Z2_TMP/z2-state.$$"
-	jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st "$style" \
-		'.profiles[$n].canon=$s | .profiles[$n].canon_hash=$h | .profiles[$n].circ_style=$st' \
-		"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+	if [ "$mode" = "new" ]; then
+		jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st seq \
+			'.profiles[$n] = ((.profiles[$n] // {}) + {canon:$s, canon_hash:$h, written_hash:$h, disabled:[], no_cycle:true, stale:false, circ_style:$st})' \
+			"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+	else
+		jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st "$style" \
+			'.profiles[$n].canon=$s | .profiles[$n].canon_hash=$h | .profiles[$n].circ_style=$st' \
+			"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+	fi
 	z2_apply_circular "$target"
 	printf '%s' "$target"
 }
