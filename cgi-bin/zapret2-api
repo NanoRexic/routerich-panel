@@ -96,6 +96,16 @@ api_apply() {
 		return
 	fi
 
+	if [ "$target" = "bcw-install" ]; then
+		require_z2 || return
+		if ! z2_bcw_install; then
+			json_error "Не удалось установить blockcheckw. Проверьте доступ к GitHub."
+			return
+		fi
+		z2_status_json | json_ok
+		return
+	fi
+
 	require_z2 || return
 
 	case "$target" in

@@ -915,6 +915,10 @@ body.modal-open {
   margin-top: 2px;
 }
 
+#zapret2-panel-search .zapret-install-banner {
+  margin: 0 0 12px;
+}
+
 .zapret-tabs.zapret-disabled,
 .zapret-body.zapret-disabled {
   opacity: 0.45;

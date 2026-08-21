@@ -137,6 +137,8 @@ z2_install() {
 		"$Z2_INIT" enable >/dev/null 2>&1 || true
 		"$Z2_INIT" start >/dev/null 2>&1 || "$Z2_INIT" restart >/dev/null 2>&1 || true
 	fi
+	z2_bcw_install || true
+	z2_ensure_nohup || true
 	return 0
 }
 
@@ -949,7 +951,78 @@ z2_job_write() {
 }
 
 z2_bcw_available() {
+	[ -x /usr/bin/blockcheckw ] && return 0
 	command -v blockcheckw >/dev/null 2>&1
+}
+
+z2_bcw_arch() {
+	machine=$(uname -m)
+	case "$machine" in
+		x86_64|amd64) printf 'x86_64' ;;
+		i?86|i586|i686) printf 'x86' ;;
+		aarch64|arm64) printf 'arm64' ;;
+		armv7*|armv6*|arm*) printf 'arm' ;;
+		mips64*) printf 'mips64' ;;
+		mipsel*|mipsle*) printf 'mipsel' ;;
+		mips*) printf 'mips' ;;
+		ppc|powerpc) printf 'ppc' ;;
+		riscv64*) printf 'riscv64' ;;
+		*) return 1 ;;
+	esac
+}
+
+z2_bcw_dl() {
+	url="$1"
+	out="$2"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fSL --retry 3 -A 'Mozilla/5.0' -o "$out" "$url" && return 0
+	fi
+	if command -v wget >/dev/null 2>&1; then
+		wget -q --no-cache -U 'Mozilla/5.0' -O "$out" "$url" && return 0
+	fi
+	return 1
+}
+
+z2_bcw_install() {
+	if z2_bcw_available && [ -x "$(command -v blockcheckw)" ]; then
+		return 0
+	fi
+	arch=$(z2_bcw_arch) || return 1
+	if [ -f /etc/routerich-panel/network-fallback.sh ]; then
+		# shellcheck disable=SC1091
+		. /etc/routerich-panel/network-fallback.sh
+		apply_github_access_fallback >/dev/null 2>&1 || true
+	fi
+	z2_mkdirs
+	workdir="$Z2_TMP/bcw-install"
+	rm -rf "$workdir"
+	mkdir -p "$workdir" || return 1
+	base="https://github.com/rcd27/blockcheckw/releases/latest/download"
+	tarball="blockcheckw-linux-${arch}.tar.gz"
+	if ! z2_bcw_dl "$base/$tarball" "$workdir/$tarball"; then
+		rm -rf "$workdir"
+		return 1
+	fi
+	z2_bcw_dl "$base/SHA256SUMS.txt" "$workdir/SHA256SUMS.txt" || true
+	if [ -s "$workdir/SHA256SUMS.txt" ] && command -v sha256sum >/dev/null 2>&1; then
+		if ! (cd "$workdir" && grep "$tarball" SHA256SUMS.txt | sha256sum -c); then
+			rm -rf "$workdir"
+			return 1
+		fi
+	fi
+	if ! tar -xzf "$workdir/$tarball" -C "$workdir"; then
+		rm -rf "$workdir"
+		return 1
+	fi
+	bin=""
+	[ -f "$workdir/blockcheckw" ] && bin="$workdir/blockcheckw"
+	[ -z "$bin" ] && bin=$(find "$workdir" -type f -name blockcheckw | head -n1)
+	[ -n "$bin" ] && [ -f "$bin" ] || { rm -rf "$workdir"; return 1; }
+	mkdir -p /usr/bin
+	cp "$bin" /usr/bin/blockcheckw || { rm -rf "$workdir"; return 1; }
+	chmod 755 /usr/bin/blockcheckw
+	rm -rf "$workdir"
+	z2_bcw_available
 }
 
 z2_bcw_running() {

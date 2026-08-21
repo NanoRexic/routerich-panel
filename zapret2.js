@@ -118,6 +118,25 @@
     if (tabbar) tabbar.classList.add('zapret-disabled');
   }
 
+  function renderBcwMissing(d) {
+    const el = document.getElementById('z2-bcw-missing');
+    const sys = document.getElementById('z2-bcw-sys');
+    const need = !!(d && d.installed) && !(d.blockcheckw && d.blockcheckw.installed);
+    if (el) {
+      el.hidden = !need;
+      if (need) {
+        el.className = 'zapret-install-banner warn';
+        el.innerHTML =
+          '<strong>blockcheckw не установлен</strong>' +
+          '<p>Нужен для вкладки «Поиск».</p>' +
+          '<button type="button" class="btn btn-primary btn-sm" id="z2-bcw-install-btn">Установить blockcheckw</button>';
+      } else {
+        el.innerHTML = '';
+      }
+    }
+    if (sys) sys.hidden = !need;
+  }
+
   function badge(on, label) {
     return '<span class="zp-badge ' + (on ? 'on' : 'off') + '">' + label + (on ? ' ✓' : '') + '</span>';
   }
@@ -159,7 +178,9 @@
       '<button type="button" class="zp-card zp-card-btn' + (nfqOpen ? ' active' : '') + '" data-z2-nfq aria-expanded="' + (nfqOpen ? 'true' : 'false') + '">' +
       '<span class="zp-label">NFQ</span><span>' + (d.nfqws2 || 0) + '</span>' +
       '<span class="zp-card-hint">' + (nfqOpen ? 'Скрыть' : 'Просмотр') + '</span></button>' +
-      '<div class="zp-card"><span class="zp-label">Поиск</span><span class="' + bcwCls + '">' + bcwLabel + '</span></div>' +
+      (bcwInstalled
+        ? '<div class="zp-card"><span class="zp-label">Поиск</span><span class="' + bcwCls + '">' + bcwLabel + '</span></div>'
+        : '<button type="button" class="zp-card zp-card-btn" data-z2-bcw-install><span class="zp-label">Поиск</span><span class="zp-run off">нет</span><span class="zp-card-hint">Установить</span></button>') +
       '<div class="zp-card"><span class="zp-label">Zapret v1</span><span class="' + (v1Active(d) ? 'zp-run off' : 'zp-run on') + '">' +
       (v1Active(d) ? 'активен' : 'выкл') + '</span></div>' +
       '<div class="zp-card"><span class="zp-label">Игры</span><span>' + gv + (d.games && d.games.xtreme ? ' Xtreme' : '') + '</span></div>' +
@@ -524,6 +545,7 @@
     fillSavedReports(d);
     syncEmbedMode();
     renderGames(d);
+    renderBcwMissing(d);
     renderLog(d && d.log);
     const running = jobSearching(d && d.job);
     showSearchProgress(running);
@@ -604,6 +626,29 @@
       }
       applyData(res.data);
       showStatus('Zapret2 установлен', 'success', { title: 'Установлено' });
+    } catch (e) {
+      showError('Ошибка сети: ' + e.message);
+      showStatus('');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function startBcwInstall() {
+    if (busy) return;
+    if (data && data.blockcheckw && data.blockcheckw.installed) return;
+    busy = true;
+    showError('');
+    showStatus('Установка blockcheckw…', 'info', { progress: true, title: 'Установка' });
+    try {
+      const res = await apiApply('bcw-install');
+      if (!res.ok) {
+        showError(res.error || 'Не удалось установить blockcheckw');
+        showStatus('');
+        return;
+      }
+      applyData(res.data);
+      showStatus('blockcheckw установлен', 'success', { title: 'Установлено' });
     } catch (e) {
       showError('Ошибка сети: ' + e.message);
       showStatus('');
@@ -798,6 +843,12 @@
         if (e.target.closest('#z2-install-btn')) startInstall();
       });
     }
+    const bcwMissing = document.getElementById('z2-bcw-missing');
+    if (bcwMissing) {
+      bcwMissing.addEventListener('click', function (e) {
+        if (e.target.closest('#z2-bcw-install-btn')) startBcwInstall();
+      });
+    }
     if (overlay) {
       overlay.addEventListener('click', function (e) {
         if (e.target === overlay) hideModal();
@@ -809,6 +860,8 @@
 
     const overview = document.getElementById('zapret2-panel-overview');
     if (overview) overview.addEventListener('click', function (e) {
+      const bcwIns = e.target.closest('[data-z2-bcw-install]');
+      if (bcwIns) return startBcwInstall();
       const nfq = e.target.closest('[data-z2-nfq]');
       if (nfq) {
         nfqOpen = !nfqOpen;
@@ -990,6 +1043,7 @@
       const btn = e.target.closest('[data-z2-system]');
       if (!btn) return;
       const v = btn.dataset.z2System;
+      if (v === 'bcw-install') return startBcwInstall();
       if (v === 'reload-lists') return run('reload-lists', {}, 'Reload lists');
       if (v.indexOf('backup-') === 0) return run('backup', { value: v.replace('backup-', '') }, 'Бэкап');
     });
