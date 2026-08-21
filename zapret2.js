@@ -53,9 +53,16 @@
 
   async function parseResponse(res) {
     const text = await res.text();
+    const raw = String(text || '').trim();
     try {
-      return JSON.parse(text);
-    } catch (e) {
+      return JSON.parse(raw);
+    } catch (e1) {
+      const from = raw.indexOf('{');
+      const to = raw.lastIndexOf('}');
+      if (from >= 0 && to > from) {
+        try { return JSON.parse(raw.slice(from, to + 1)); } catch (e2) { /* fall through */ }
+      }
+      if (res.status === 504 || res.status === 502) throw new Error('Таймаут CGI. Повторите установку.');
       throw new Error('Некорректный ответ API');
     }
   }
@@ -1015,11 +1022,15 @@
         return;
       }
       let args;
+      let replace = false;
       if (all) {
         args = (resultItems || []).filter(Boolean);
         if (!args.length) {
           showError('Нет найденных стратегий');
           return;
+        }
+        if (mode !== 'new') {
+          replace = confirm('Заменить все стратегии в профиле?\n\nОК — заменить текущие слоты.\nОтмена — добавить к имеющимся.');
         }
       } else {
         args = currentArgs();
@@ -1034,7 +1045,8 @@
         mode: mode,
         args: args,
         name: name,
-        domains: collectBcw().domains
+        domains: collectBcw().domains,
+        replace: replace
       };
       embedApply(extra, created, mode, all ? args.length : 0);
     }

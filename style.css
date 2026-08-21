@@ -2006,6 +2006,11 @@ body.notification-center-open {
   margin-bottom: 12px;
 }
 
+.z2-bcw-domains {
+  width: 100%;
+  max-width: none;
+}
+
 .z2-form-grid label {
   display: flex;
   flex-direction: column;

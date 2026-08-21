@@ -3,9 +3,10 @@
 const zapretOverlay = document.getElementById('zapret-overlay');
 const zapretError = document.getElementById('zapret-error');
 const zapretStatus = document.getElementById('zapret-status');
-const zapretTabs = document.querySelectorAll('.zapret-tab');
+const zapretTabs = document.querySelectorAll('#zapret-overlay .zapret-tab');
 const zapretNotify = () => window.RouteRichNotify;
-const zapretPanels = document.querySelectorAll('.zapret-panel');
+const zapretPanels = document.querySelectorAll('#zapret-overlay .zapret-panel');
+const hostsOverlay = document.getElementById('hosts-overlay');
 const youtubeSelect = document.getElementById('zapret-youtube-select');
 const discordSelect = document.getElementById('zapret-discord-select');
 
@@ -31,25 +32,34 @@ const PANEL_TEST_MODE_LABELS = {
 
 const ZAPRET_STATUS_VISIBLE_MS = 4500;
 
+function hostsUiOpen() {
+  return !!(hostsOverlay && !hostsOverlay.hidden);
+}
+
+function notifySource() {
+  return hostsUiOpen() ? 'Hosts' : 'Zapret';
+}
+
 function setZapretError(msg) {
-  // Старая плашка #zapret-error больше не используется — только центр уведомлений
   if (zapretError) {
     zapretError.hidden = true;
     zapretError.textContent = '';
   }
   const n = zapretNotify();
   if (!n) return;
+  const source = notifySource();
+  const group = source === 'Hosts' ? 'hosts-error' : 'zapret-error';
   if (!msg) {
-    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret-error');
-    else if (n.dismissByGroup) n.dismissByGroup('zapret-error');
+    if (n.dismissAllByGroup) n.dismissAllByGroup(group);
+    else if (n.dismissByGroup) n.dismissByGroup(group);
     return;
   }
   n.show({
     message: msg,
     type: 'error',
-    source: 'Zapret',
+    source: source,
     title: 'Ошибка',
-    group: 'zapret-error'
+    group: group
   });
 }
 
@@ -58,9 +68,11 @@ function setZapretStatus(msg, type, opts) {
   const n = zapretNotify();
   if (!n) return;
   opts = opts || {};
+  const source = opts.source || notifySource();
+  const group = source === 'Hosts' ? 'hosts-status' : 'zapret-status';
   if (!msg) {
-    if (n.dismissAllByGroup) n.dismissAllByGroup('zapret-status');
-    else if (n.dismissByGroup) n.dismissByGroup('zapret-status');
+    if (n.dismissAllByGroup) n.dismissAllByGroup(group);
+    else if (n.dismissByGroup) n.dismissByGroup(group);
     return;
   }
   const statusType = type || 'info';
@@ -70,14 +82,14 @@ function setZapretStatus(msg, type, opts) {
     if (progress) title = 'Подождите';
     else if (statusType === 'success') title = 'Применено';
     else if (statusType === 'error') title = 'Ошибка';
-    else title = 'Zapret';
+    else title = source;
   }
   n.show({
     message: msg,
     type: statusType,
-    source: 'Zapret',
+    source: source,
     title: title,
-    group: 'zapret-status',
+    group: group,
     stack: false,
     toastOnly: true,
     progress: progress,
@@ -265,9 +277,8 @@ function renderOverview(d) {
     badge(d.moonlight_bypass, 'Moonlight') +
     badge(d.finland_ips, 'Finland') +
     '</div>' +
-    (d.hosts_preset || extras.length
-      ? '<p class="zp-muted zp-overview-meta">Hosts: ' + (d.hosts_preset || 'нет') +
-        (extras.length ? ' · ' + extras.join(' · ') : '') + '</p>'
+    (extras.length
+      ? '<p class="zp-muted zp-overview-meta">' + extras.join(' · ') + '</p>'
       : '') +
     '</div>';
 }
@@ -704,7 +715,8 @@ async function loadYoutubeList(force) {
 }
 
 async function refreshZapret(silent) {
-  if (!silent) setZapretStatus('Статус…', 'info', { title: 'Обновление', progress: true });
+  const hosts = hostsUiOpen();
+  if (!silent) setZapretStatus(hosts ? 'Обновление…' : 'Статус…', 'info', { title: 'Обновление', progress: true });
   setZapretError('');
   try {
     const data = await zapretGet('status');
@@ -714,6 +726,12 @@ async function refreshZapret(silent) {
       return;
     }
     zapretData = data.data;
+    renderHostsBlocks(zapretData);
+    syncStrategyUI(zapretData);
+    if (hosts) {
+      if (!silent) setZapretStatus('Обновлено', 'success', { title: 'Обновлено' });
+      return;
+    }
     renderInstallBanner(zapretData);
     setZapretPanelsEnabled(!!zapretData.installed);
     if (!zapretData.installed) {
@@ -725,8 +743,6 @@ async function refreshZapret(silent) {
     }
     renderZapret2Banner(zapretData);
     renderOverview(zapretData);
-    renderHostsBlocks(zapretData);
-    syncStrategyUI(zapretData);
     if (!silent && !(zapretData.uci && zapretData.uci.initialized)) {
       setZapretStatus('Статус получен', 'success', { title: 'Обновлено' });
     }
@@ -861,7 +877,22 @@ async function runAction(target, value) {
   }
 }
 
+function hideHostsModal() {
+  if (!hostsOverlay) return;
+  hostsOverlay.hidden = true;
+  if (zapretOverlay && zapretOverlay.hidden) document.body.classList.remove('modal-open');
+}
+
+function showHostsModal() {
+  hideZapretModal();
+  if (!hostsOverlay) return;
+  hostsOverlay.hidden = false;
+  document.body.classList.add('modal-open');
+  refreshZapret(true);
+}
+
 function showZapretModal() {
+  hideHostsModal();
   const overlay = zapretOverlay || document.getElementById('zapret-overlay');
   if (!overlay) return;
   overlay.hidden = false;
@@ -885,8 +916,8 @@ function hideZapretModal() {
   const overlay = zapretOverlay || document.getElementById('zapret-overlay');
   if (!overlay) return;
   overlay.hidden = true;
-  document.body.classList.remove('modal-open');
   showZapret2DisabledBanner = false;
+  if (!hostsOverlay || hostsOverlay.hidden) document.body.classList.remove('modal-open');
 }
 
 function switchTab(tabId) {
@@ -911,6 +942,9 @@ function initZapretUi() {
   bindClick('btn-zapret', showZapretModal);
   bindClick('zapret-close', hideZapretModal);
   bindClick('zapret-refresh', () => refreshZapret());
+  bindClick('btn-hosts', showHostsModal);
+  bindClick('hosts-close', hideHostsModal);
+  bindClick('hosts-refresh', () => refreshZapret());
 
   bindClick('zapret-zapret2-banner', (e) => {
     if (!e.target.closest('#zapret-zapret2-disable')) return;
@@ -980,18 +1014,22 @@ function initZapretUi() {
     }
     return runAction('discord_script', val);
   }
-  const toggle = e.target.closest('[data-toggle]');
-  if (toggle) return runAction('toggle', toggle.dataset.toggle);
   });
 
-  const panelHosts = document.getElementById('zapret-panel-hosts');
-  if (panelHosts) panelHosts.addEventListener('click', (e) => {
-  const block = e.target.closest('[data-hosts]');
-  if (block) return runAction('hosts', block.dataset.hosts);
-  const preset = e.target.closest('[data-hosts-preset]');
-  if (!preset) return;
-  const val = preset.dataset.hostsPreset;
-  runAction('hosts', val);
+  if (hostsOverlay) {
+    hostsOverlay.addEventListener('click', (e) => {
+      if (e.target === hostsOverlay) hideHostsModal();
+    });
+  }
+  const hostsBody = document.getElementById('hosts-body');
+  if (hostsBody) hostsBody.addEventListener('click', (e) => {
+    const toggle = e.target.closest('[data-toggle]');
+    if (toggle) return runAction('toggle', toggle.dataset.toggle);
+    const block = e.target.closest('[data-hosts]');
+    if (block) return runAction('hosts', block.dataset.hosts);
+    const preset = e.target.closest('[data-hosts-preset]');
+    if (!preset) return;
+    runAction('hosts', preset.dataset.hostsPreset);
   });
 
   bindClick('zapret-test-current', () => runTest('current'));

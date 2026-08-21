@@ -138,16 +138,20 @@ sync_version_files() {
 
 get_remote_version() {
 	mkdir -p "$TMP_DIR"
+	got=""
+	idx=0
 	for base in "$REPO_RAW" "$REPO_FALLBACK"; do
 		[ -n "$base" ] || continue
-		fetch "$base/VERSION" "$TMP_DIR/VERSION" || continue
-		ver=$(tr -d '\r\n' < "$TMP_DIR/VERSION")
-		[ -n "$ver" ] || continue
-		REPO_RAW="$base"
-		printf '%s' "$ver"
-		return 0
+		idx=$((idx + 1))
+		if fetch "$base/VERSION" "$TMP_DIR/VERSION.$idx"; then
+			ver=$(tr -d '\r\n' < "$TMP_DIR/VERSION.$idx")
+			[ -n "$ver" ] && got="$got$ver
+"
+			[ -z "$REPO_RAW_SET" ] && REPO_RAW="$base" && REPO_RAW_SET=1
+		fi
 	done
-	return 1
+	[ -n "$got" ] || return 1
+	printf '%s' "$got" | pick_max_version
 }
 
 deploy_file() {
@@ -225,9 +229,12 @@ run_update() {
 	mkdir -p /etc/routerich-panel
 	deploy_from_manifest || json_err "Не удалось скачать файлы панели с GitHub"
 
-	latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
+	# Берём VERSION из только что скачанных файлов, не второй запрос к GitHub CDN
+	# (кэш raw часто отдаёт старый VERSION и затирает свежий деплой).
+	latest=$(tr -d '\r\n' < "$PANEL_HOME/VERSION" 2>/dev/null)
+	[ -n "$latest" ] || latest=$(tr -d '\r\n' < "$VERSION_LOCAL" 2>/dev/null)
+	[ -n "$latest" ] || latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
 	[ -n "$latest" ] || json_err "Пустая версия после обновления"
-	# После деплоя принудительно выставляем VERSION + meta на remote latest
 	sync_version_files "$latest"
 
 	# Повторно вешаем панель только на LAN и DROP с WAN

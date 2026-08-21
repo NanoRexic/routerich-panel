@@ -851,7 +851,7 @@ z2_embed_into() {
 	new_name="$4"
 	domains="$5"
 	args_json=$(jq -n --arg a "$raw_args" '[$a]')
-	z2_embed_list "$target" "$mode" "$args_json" "$new_name" "$domains"
+	z2_embed_list "$target" "$mode" "$args_json" "$new_name" 0
 }
 
 z2_embed_list() {
@@ -859,6 +859,7 @@ z2_embed_list() {
 	mode="$2"
 	args_json="$3"
 	new_name="$4"
+	replace="$5"
 	count=$(printf '%s' "$args_json" | jq 'if type=="array" then length else 0 end')
 	case "$count" in ''|*[!0-9]*) return 1 ;; esac
 	[ "$count" -ge 1 ] || return 1
@@ -890,6 +891,9 @@ z2_embed_list() {
 		[ -n "$canon" ] || canon=$(z2_get_script "$target")
 		parsed=$(z2_parse_script "$canon")
 		parsed=$(z2_promote_slots "$parsed")
+		if [ "$replace" = "1" ]; then
+			parsed=$(printf '%s' "$parsed" | jq '.slots = []')
+		fi
 	fi
 	wss_any=0
 	[ "$(z2_circ_has_wssize "$parsed")" = "true" ] && wss_any=1
@@ -932,9 +936,15 @@ z2_embed_list() {
 			'.profiles[$n] = ((.profiles[$n] // {}) + {canon:$s, canon_hash:$h, written_hash:$h, disabled:[], no_cycle:true, stale:false, circ_style:$st})' \
 			"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
 	else
-		jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st "$style" \
-			'.profiles[$n].canon=$s | .profiles[$n].canon_hash=$h | .profiles[$n].circ_style=$st' \
-			"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+		if [ "$replace" = "1" ]; then
+			jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st "$style" \
+				'.profiles[$n].canon=$s | .profiles[$n].canon_hash=$h | .profiles[$n].circ_style=$st | .profiles[$n].disabled=[]' \
+				"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+		else
+			jq --arg n "$target" --arg s "$new_canon" --arg h "$hash" --arg st "$style" \
+				'.profiles[$n].canon=$s | .profiles[$n].canon_hash=$h | .profiles[$n].circ_style=$st' \
+				"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+		fi
 	fi
 	z2_apply_circular "$target"
 	printf '%s' "$target"
@@ -991,16 +1001,25 @@ z2_bcw_dl() {
 	url="$1"
 	out="$2"
 	if command -v curl >/dev/null 2>&1; then
-		curl -fSL --retry 3 -A 'Mozilla/5.0' -o "$out" "$url" && return 0
+		curl -fsSL --connect-timeout 15 --max-time 90 --retry 2 -A 'Mozilla/5.0' -o "$out" "$url" && return 0
 	fi
 	if command -v wget >/dev/null 2>&1; then
-		wget -q --no-cache -U 'Mozilla/5.0' -O "$out" "$url" && return 0
+		wget -q --no-cache --timeout=90 -U 'Mozilla/5.0' -O "$out" "$url" && return 0
 	fi
 	return 1
 }
 
 z2_bcw_install() {
-	if z2_bcw_available && [ -x "$(command -v blockcheckw)" ]; then
+	z2_mkdirs
+	z2_bcw_install_run >/dev/null 2>>"$Z2_TMP/bcw-install.log"
+}
+
+z2_bcw_install_run() {
+	z2_mkdirs
+	if [ -x /usr/bin/blockcheckw ]; then
+		return 0
+	fi
+	if command -v blockcheckw >/dev/null 2>&1; then
 		return 0
 	fi
 	arch=$(z2_bcw_arch) || return 1
@@ -1009,7 +1028,6 @@ z2_bcw_install() {
 		. /etc/routerich-panel/network-fallback.sh
 		apply_github_access_fallback >/dev/null 2>&1 || true
 	fi
-	z2_mkdirs
 	workdir="$Z2_TMP/bcw-install"
 	rm -rf "$workdir"
 	mkdir -p "$workdir" || return 1
@@ -1021,24 +1039,24 @@ z2_bcw_install() {
 	fi
 	z2_bcw_dl "$base/SHA256SUMS.txt" "$workdir/SHA256SUMS.txt" || true
 	if [ -s "$workdir/SHA256SUMS.txt" ] && command -v sha256sum >/dev/null 2>&1; then
-		if ! (cd "$workdir" && grep "$tarball" SHA256SUMS.txt | sha256sum -c); then
+		if ! (cd "$workdir" && grep "$tarball" SHA256SUMS.txt | sha256sum -c >/dev/null 2>&1); then
 			rm -rf "$workdir"
 			return 1
 		fi
 	fi
-	if ! tar -xzf "$workdir/$tarball" -C "$workdir"; then
+	if ! tar -xzf "$workdir/$tarball" -C "$workdir" >/dev/null 2>&1; then
 		rm -rf "$workdir"
 		return 1
 	fi
 	bin=""
 	[ -f "$workdir/blockcheckw" ] && bin="$workdir/blockcheckw"
-	[ -z "$bin" ] && bin=$(find "$workdir" -type f -name blockcheckw | head -n1)
+	[ -z "$bin" ] && bin=$(find "$workdir" -type f -name blockcheckw 2>/dev/null | head -n1)
 	[ -n "$bin" ] && [ -f "$bin" ] || { rm -rf "$workdir"; return 1; }
 	mkdir -p /usr/bin
 	cp "$bin" /usr/bin/blockcheckw || { rm -rf "$workdir"; return 1; }
 	chmod 755 /usr/bin/blockcheckw
 	rm -rf "$workdir"
-	z2_bcw_available
+	[ -x /usr/bin/blockcheckw ]
 }
 
 z2_bcw_running() {

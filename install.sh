@@ -133,8 +133,8 @@ PREFERRED_PORT="$PANEL_PORT"
 # Only eval PANEL_* lines — setup-panel.sh logs go to stderr
 eval "$(sh "$SETUP" "$PANEL_PORT" | grep '^PANEL_')"
 
-VERSION=""
-fetch "$REPO_RAW/VERSION" "$TMP_DIR/VERSION" 2>/dev/null && VERSION=$(cat "$TMP_DIR/VERSION" 2>/dev/null | tr -d '\r\n')
+VERSION=$(tr -d '\r\n' < /www/routerich-panel/VERSION 2>/dev/null)
+[ -n "$VERSION" ] || VERSION=$(tr -d '\r\n' < /etc/routerich-panel/VERSION 2>/dev/null)
 
 printf '\n=== Install complete ===\n'
 [ -n "$VERSION" ] && printf 'Version: %s\n' "$VERSION"

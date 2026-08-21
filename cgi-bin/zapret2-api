@@ -259,7 +259,9 @@ api_apply() {
 				json_error "Укажите профиль"
 				return
 			fi
-			embedded=$(z2_embed_list "$profile" "$mode" "$args_json" "$new_name")
+			replace=$(printf '%s' "$POST_JSON" | jq -r '.replace // false')
+			[ "$replace" = "true" ] && replace=1 || replace=0
+			embedded=$(z2_embed_list "$profile" "$mode" "$args_json" "$new_name" "$replace")
 			rc=$?
 			if [ "$rc" -eq 2 ]; then
 				if [ "$n_args" -gt 1 ]; then
