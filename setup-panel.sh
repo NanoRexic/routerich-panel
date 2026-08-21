@@ -63,6 +63,20 @@ ensure_jq() {
 	command -v jq >/dev/null 2>&1
 }
 
+ensure_nohup() {
+	if command -v nohup >/dev/null 2>&1; then
+		return 0
+	fi
+	log "nohup not found, trying to install coreutils-nohup..."
+	if command -v opkg >/dev/null 2>&1; then
+		opkg update >/dev/null 2>&1 || true
+		opkg install coreutils-nohup >/dev/null 2>&1 || true
+	elif command -v apk >/dev/null 2>&1; then
+		apk add --no-cache coreutils-nohup >/dev/null 2>&1 || true
+	fi
+	command -v nohup >/dev/null 2>&1
+}
+
 mkdir -p "$PANEL_HOME/cgi-bin" /etc/routerich-panel/generated
 
 if ! select_port; then
@@ -79,6 +93,9 @@ fi
 
 if ! ensure_jq; then
 	log "Warning: jq not installed — Zapret API and AWG generation may not work"
+fi
+if ! ensure_nohup; then
+	log "Warning: nohup not installed — Zapret2 search will use a fallback starter"
 fi
 
 # LAN IPv4 only (+ localhost for installer/health checks). Never 0.0.0.0 / ::

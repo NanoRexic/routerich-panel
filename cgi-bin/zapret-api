@@ -116,19 +116,24 @@ disable_zapret2_api() {
 		json_error "Zapret2 не найден на роутере"
 		return 1
 	fi
+	stop_zapret2_exclusive
+	return 0
+}
 
-	if [ -f /etc/init.d/zapret2 ]; then
+# Zapret v1 и Zapret2 не должны работать одновременно.
+ensure_exclusive_v1() {
+	if command -v stop_zapret2_exclusive >/dev/null 2>&1; then
+		stop_zapret2_exclusive
+		return
+	fi
+	if [ -x /etc/init.d/zapret2 ]; then
 		/etc/init.d/zapret2 stop >/dev/null 2>&1 || true
 		/etc/init.d/zapret2 disable >/dev/null 2>&1 || true
 	fi
-
-	# Не меняем zapret2.main.enabled — настройки LuCI сохраняются.
-	# Если stop не завершил процесс, добиваем вручную.
-	if pgrep nfqws2 >/dev/null 2>&1; then
-		killall nfqws2 2>/dev/null || true
+	if pgrep -x nfqws2 >/dev/null 2>&1; then
+		kill $(pgrep -x nfqws2) >/dev/null 2>&1 || true
 		sleep 1
 	fi
-	return 0
 }
 
 require_zapret_uci() {
@@ -402,6 +407,14 @@ api_apply() {
 	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
 
 	case "$target" in
+		stop|zapret2_disable) ;;
+		*)
+			# Любое действие, которое поднимает nfqws, гасит Zapret2.
+			ensure_exclusive_v1
+			;;
+	esac
+
+	case "$target" in
 		start)
 			zapret_exec start_zapret 1
 			;;
@@ -560,6 +573,10 @@ fi
 
 # shellcheck disable=SC1090
 . "$LIB"
+if [ -f /etc/routerich-panel/zapret2-headless.sh ]; then
+	# shellcheck disable=SC1091
+	. /etc/routerich-panel/zapret2-headless.sh
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
 	json_error "jq не установлен"

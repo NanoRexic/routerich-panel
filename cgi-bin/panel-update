@@ -169,14 +169,17 @@ deploy_fallback() {
 	deploy_file "cgi-bin/generate-awg" "/www/routerich-panel/cgi-bin/generate-awg" "755" || return 1
 	deploy_file "cgi-bin/saved-awg" "/www/routerich-panel/cgi-bin/saved-awg" "755" || return 1
 	deploy_file "cgi-bin/zapret-api" "/www/routerich-panel/cgi-bin/zapret-api" "755" || return 1
+	deploy_file "cgi-bin/zapret2-api" "/www/routerich-panel/cgi-bin/zapret2-api" "755" || return 1
 	deploy_file "cgi-bin/panel-update" "/www/routerich-panel/cgi-bin/panel-update" "755" || return 1
 	deploy_file "lib/zapret-headless.sh" "/etc/routerich-panel/zapret-headless.sh" "755" || return 1
+	deploy_file "lib/zapret2-headless.sh" "/etc/routerich-panel/zapret2-headless.sh" "755" || return 1
 	deploy_file "lib/network-fallback.sh" "/etc/routerich-panel/network-fallback.sh" "755" || return 1
 	deploy_file "index.html" "/www/routerich-panel/index.html" "644" || return 1
 	deploy_file "notifications.js" "/www/routerich-panel/notifications.js" "644" || return 1
 	deploy_file "app.js" "/www/routerich-panel/app.js" "644" || return 1
 	deploy_file "shortcut.js" "/www/routerich-panel/shortcut.js" "644" || return 1
 	deploy_file "zapret.js" "/www/routerich-panel/zapret.js" "644" || return 1
+	deploy_file "zapret2.js" "/www/routerich-panel/zapret2.js" "644" || return 1
 	deploy_file "style.css" "/www/routerich-panel/style.css" "644" || return 1
 	deploy_file "sw.js" "/www/routerich-panel/sw.js" "644" || return 1
 	deploy_file "icon.svg" "/www/routerich-panel/icon.svg" "644" || return 1

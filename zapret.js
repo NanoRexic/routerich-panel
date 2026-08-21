@@ -200,8 +200,8 @@ function renderZapret2Banner(d) {
     el.className = 'zapret-zapret2-banner warn';
     el.innerHTML =
       '<strong>На роутере активен Zapret2</strong>' +
-      '<p>На Routerich он установлен по умолчанию. Перед использованием обычного Zapret (v1) ' +
-      'нужно остановить Zapret2 и отключить его автозапуск — иначе обе системы будут конфликтовать.</p>' +
+      '<p>На Routerich он установлен по умолчанию. Zapret v1 и Zapret2 нельзя держать вместе: ' +
+      'любое действие в этой вкладке остановит Zapret2 и снимет его автозапуск.</p>' +
       '<p class="zp-zapret2-meta">Кнопка ниже не меняет настройки в LuCI — Zapret2 можно снова включить вручную.</p>' +
       (meta ? '<p class="zp-zapret2-meta">Сейчас: ' + meta + '</p>' : '') +
       '<button type="button" class="btn btn-secondary btn-sm" id="zapret-zapret2-disable">' +
@@ -773,9 +773,9 @@ async function runTest(mode, options) {
 }
 
 function zapret2ActionWarning(target) {
-  if (target === 'zapret2_disable') return '';
+  if (target === 'zapret2_disable' || target === 'stop') return '';
   if (!zapretData || !isZapret2Active(zapretData.zapret2)) return '';
-  return 'Zapret2 всё ещё активен. Для стабильной работы обычного Zapret рекомендуется сначала отключить Zapret2.\n\nПродолжить?';
+  return 'Zapret2 сейчас активен. Zapret v1 и Zapret2 нельзя держать вместе — Zapret2 будет остановлен.\n\nПродолжить?';
 }
 
 async function zapretInstall() {

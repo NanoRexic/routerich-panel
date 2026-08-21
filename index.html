@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.2.5">
+  <meta name="routerich-version" content="1.3">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -91,6 +91,12 @@
           <button class="menu-item" id="btn-zapret">
             <span class="menu-icon">🛡</span>
             Управление Zapret
+          </button>
+        </li>
+        <li>
+          <button class="menu-item" id="btn-zapret2">
+            <span class="menu-icon">🧩</span>
+            Управление Zapret2
           </button>
         </li>
       </ul>
@@ -376,6 +382,138 @@
     </div>
   </div>
 
+  <div class="modal-overlay zapret-overlay" id="zapret2-overlay" hidden>
+    <div class="modal zapret-modal" role="dialog" aria-labelledby="zapret2-title">
+      <div class="zapret-header">
+        <h2 id="zapret2-title">Zapret2</h2>
+        <div class="zapret-header-actions">
+          <button type="button" class="btn btn-outline btn-sm" id="zapret2-refresh">Обновить</button>
+          <button type="button" class="btn btn-outline btn-sm" id="zapret2-close">Закрыть</button>
+        </div>
+      </div>
+
+      <nav class="zapret-tabs" id="zapret2-tabs" aria-label="Разделы Zapret2">
+        <button type="button" class="zapret-tab active" data-tab="overview">Обзор</button>
+        <button type="button" class="zapret-tab" data-tab="strategies">Стратегии</button>
+        <button type="button" class="zapret-tab" data-tab="search">Поиск</button>
+        <button type="button" class="zapret-tab" data-tab="games">Игры</button>
+        <button type="button" class="zapret-tab" data-tab="system">Система</button>
+      </nav>
+
+      <div class="zapret-zapret2-banner" id="zapret2-conflict-banner" hidden></div>
+      <div class="zapret-install-banner" id="zapret2-missing-banner" hidden></div>
+
+      <div class="zapret-body" id="zapret2-body">
+        <section class="zapret-panel active" id="zapret2-panel-overview">
+          <div class="zp-overview-service">
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-z2-service="start">Запустить</button>
+              <button type="button" class="btn btn-outline btn-sm" data-z2-service="stop">Остановить</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-z2-service="restart">Перезапустить</button>
+            </div>
+          </div>
+          <div id="zapret2-overview" class="zapret-overview"></div>
+        </section>
+
+        <section class="zapret-panel" id="zapret2-panel-strategies">
+          <div id="zapret2-strategies"></div>
+        </section>
+
+        <section class="zapret-panel" id="zapret2-panel-search">
+          <div class="zp-section">
+            <h3>Параметры поиска</h3>
+            <div class="z2-form-grid">
+              <label>Домены
+                <input type="text" id="z2-bcw-domains" class="saved-select" placeholder="rutracker.org">
+              </label>
+              <label>Потоки
+                <input type="number" id="z2-bcw-workers" class="saved-select" min="8" max="128" step="8">
+              </label>
+              <label>Протокол
+                <select id="z2-bcw-proto" class="saved-select">
+                  <option value="tls12">tls12</option>
+                  <option value="tls13">tls13</option>
+                  <option value="http">http</option>
+                  <option value="http,tls12,tls13">все</option>
+                </select>
+              </label>
+              <label>DNS
+                <select id="z2-bcw-dns" class="saved-select">
+                  <option value="auto">auto</option>
+                  <option value="system">system</option>
+                  <option value="doh">doh</option>
+                </select>
+              </label>
+              <label>Таймаут, сек
+                <input type="number" id="z2-bcw-timeout" class="saved-select" min="60" max="3600" step="60">
+              </label>
+            </div>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="z2-bcw-quick">Быстрый поиск</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="z2-bcw-full">Полный поиск</button>
+              <button type="button" class="btn btn-outline btn-sm" id="z2-bcw-univ">Универсальный</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" id="z2-bcw-stop">Стоп</button>
+            </div>
+          </div>
+          <div class="zp-section" id="z2-bcw-progress" hidden>
+            <h3>Ход поиска</h3>
+            <div class="z2-bcw-live" id="z2-bcw-live" hidden>
+              <span class="z2-bcw-pulse" aria-hidden="true"></span>
+              <span id="z2-bcw-live-text"></span>
+            </div>
+            <pre class="z2-log" id="z2-bcw-log"></pre>
+          </div>
+          <div class="zp-section">
+            <h3>Найденные стратегии</h3>
+            <select id="z2-bcw-saved" class="saved-select z2-saved-select" aria-label="Сохранённые отчёты">
+              <option value="">Нет сохранённых отчётов</option>
+            </select>
+            <div id="z2-bcw-results" class="z2-results"></div>
+            <div class="zp-select-row z2-embed-row">
+              <select id="z2-embed-mode" class="saved-select">
+                <option value="circular-front">В начало профиля</option>
+                <option value="new">Новый профиль</option>
+              </select>
+              <select id="z2-embed-target" class="saved-select"></select>
+              <input type="text" id="z2-embed-name" class="saved-select" placeholder="имя профиля" hidden>
+              <button type="button" class="btn btn-primary btn-sm" id="z2-embed-btn">Встроить выбранную</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret2-panel-games">
+          <div class="zp-section">
+            <h3>Игры (Gv)</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-z2-gv="1">Gv1</button>
+              <button type="button" class="zp-toggle" data-z2-gv="2">Gv2</button>
+              <button type="button" class="zp-toggle" data-z2-gv="3">Gv3</button>
+              <button type="button" class="zp-toggle" data-z2-gv="4">Gv4</button>
+              <button type="button" class="zp-toggle" data-z2-gv="xtreme" title="Широкие порты для проверки игр">Xtreme</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="zapret-panel" id="zapret2-panel-system">
+          <div class="zp-section">
+            <h3>Списки</h3>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-outline" data-z2-system="reload-lists">Обновить списки</button>
+            </div>
+          </div>
+          <div class="zp-section">
+            <h3>Резервная копия</h3>
+            <div class="zp-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-z2-system="backup-save">Сохранить</button>
+              <button type="button" class="btn btn-outline btn-sm" data-z2-system="backup-restore">Восстановить</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" data-z2-system="backup-delete">Удалить</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="shortcut-overlay" hidden>
     <div class="modal shortcut-modal" role="dialog" aria-labelledby="shortcut-title">
       <div class="modal-header">
@@ -396,6 +534,7 @@
       document.write('<script src="app.js' + q + '"><\/script>');
       document.write('<script src="shortcut.js' + q + '"><\/script>');
       document.write('<script src="zapret.js' + q + '"><\/script>');
+      document.write('<script src="zapret2.js' + q + '"><\/script>');
     })();
   </script>
 </body>

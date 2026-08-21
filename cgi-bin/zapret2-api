@@ -1,0 +1,386 @@
+#!/bin/sh
+
+LIB="/etc/routerich-panel/zapret2-headless.sh"
+
+json_error() {
+	jq -n --arg error "$1" '{ok:false, error:$error}'
+}
+
+json_ok() {
+	if [ -n "$1" ]; then
+		jq -n --argjson data "$1" '{ok:true, data:$data}'
+	elif [ ! -t 0 ]; then
+		jq -s '{ok:true, data:.[0]}'
+	else
+		jq -n '{ok:true, data:null}'
+	fi
+}
+
+read_post_json() {
+	if [ -z "$CONTENT_LENGTH" ] || [ "$CONTENT_LENGTH" -eq 0 ]; then
+		POST_JSON=""
+		return
+	fi
+	POST_JSON=$(dd bs=1 count="$CONTENT_LENGTH" 2>/dev/null)
+}
+
+get_action() {
+	action=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			action=*) action="${QUERY_STRING#action=}"; action="${action%%&*}" ;;
+		esac
+	fi
+	if [ -z "$action" ] && [ -n "$POST_JSON" ]; then
+		action=$(printf '%s' "$POST_JSON" | jq -r '.action // empty' 2>/dev/null)
+	fi
+	printf '%s' "$action"
+}
+
+get_query_param() {
+	param="$1"
+	default="$2"
+	value=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			*${param}=*)
+				value="${QUERY_STRING#*${param}=}"
+				value="${value%%&*}"
+				;;
+		esac
+	fi
+	if [ -n "$value" ]; then
+		printf '%s' "$value"
+	else
+		printf '%s' "$default"
+	fi
+}
+
+require_z2() {
+	z2_installed || {
+		json_error "Zapret2 не установлен"
+		return 1
+	}
+	return 0
+}
+
+echo "Content-Type: application/json"
+echo ""
+
+if [ ! -f "$LIB" ]; then
+	json_error "Библиотека Zapret2 не установлена на роутере"
+	exit 0
+fi
+
+# shellcheck disable=SC1090
+. "$LIB"
+
+if ! command -v jq >/dev/null 2>&1; then
+	json_error "jq не установлен"
+	exit 0
+fi
+
+read_post_json
+action=$(get_action)
+
+api_apply() {
+	target=$(printf '%s' "$POST_JSON" | jq -r '.target // empty')
+	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
+
+	if [ "$target" = "install" ]; then
+		if ! z2_install; then
+			json_error "Не удалось установить Zapret2. Проверьте доступ к репозиторию Routerich и свободное место."
+			return
+		fi
+		z2_status_json | json_ok
+		return
+	fi
+
+	require_z2 || return
+
+	case "$target" in
+		start)
+			z2_start_v2 || { json_error "Не удалось запустить Zapret2"; return; }
+			;;
+		stop)
+			z2_stop_v2
+			;;
+		restart)
+			z2_restart_v2 || { json_error "Не удалось перезапустить Zapret2"; return; }
+			;;
+		enable)
+			uci -q set zapret2.main.enabled='1'
+			uci -q commit zapret2
+			[ -x "$Z2_INIT" ] && "$Z2_INIT" enable >/dev/null 2>&1 || true
+			;;
+		disable)
+			z2_stop_v2
+			uci -q set zapret2.main.enabled='0'
+			uci -q commit zapret2
+			;;
+		profile-enable)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			on=$(printf '%s' "$POST_JSON" | jq -r '.enabled // empty')
+			[ -n "$name" ] || { json_error "Укажите имя стратегии"; return; }
+			case "$on" in 1|0|true|false) ;; *) json_error "enabled: 0 или 1"; return ;; esac
+			[ "$on" = "true" ] && on=1
+			[ "$on" = "false" ] && on=0
+			z2_set_enabled "$name" "$on"
+			z2_restart_v2
+			;;
+		circular-set)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			ids=$(printf '%s' "$POST_JSON" | jq -c '.disabled // []')
+			no_cycle=$(printf '%s' "$POST_JSON" | jq '.no_cycle // true')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			if ! z2_set_disabled "$name" "$ids" "$no_cycle"; then
+				json_error "Нельзя выключить все circular-слоты"
+				return
+			fi
+			z2_restart_v2
+			;;
+		circular-resync)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			z2_resync_canon "$name"
+			;;
+		circular-reapply)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			z2_apply_circular "$name" || { json_error "Не удалось применить отсев"; return; }
+			z2_restart_v2
+			;;
+		circular-reorder)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			order=$(printf '%s' "$POST_JSON" | jq -c '.order // empty')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			[ -n "$order" ] && [ "$order" != "null" ] || { json_error "Укажите порядок слотов"; return; }
+			z2_reorder_slots "$name" "$order" || { json_error "Некорректный порядок слотов"; return; }
+			z2_restart_v2
+			;;
+		circ-style)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			style=$(printf '%s' "$POST_JSON" | jq -r '.style // empty')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			case "$style" in seq|pkts|d20) ;; *) json_error "style: seq или d20"; return ;; esac
+			z2_set_circ_style "$name" "$style" || { json_error "Не удалось сменить диапазон"; return; }
+			z2_restart_v2
+			;;
+		games)
+			case "$value" in
+				1|2|3|4)
+					xtreme=$(printf '%s' "$POST_JSON" | jq -r '.xtreme // false')
+					[ "$xtreme" = "true" ] && xt=1 || xt=0
+					# keep current xtreme if already on and not specified
+					cur=$(z2_detect_games)
+					cur_x=$(printf '%s' "$cur" | awk '{print $2}')
+					explicit=$(printf '%s' "$POST_JSON" | jq 'has("xtreme")')
+					[ "$explicit" = "false" ] && xt="${cur_x:-0}"
+					z2_games_apply "$value" "$xt"
+					z2_restart_v2
+					;;
+				xtreme)
+					cur=$(z2_detect_games)
+					gv=$(printf '%s' "$cur" | awk '{print $1}')
+					xt=$(printf '%s' "$cur" | awk '{print $2}')
+					[ -n "$gv" ] || { json_error "Сначала включите игровую стратегию Gv"; return; }
+					if [ "$xt" = "1" ]; then
+						z2_games_apply "$gv" 0
+					else
+						z2_games_apply "$gv" 1
+					fi
+					z2_restart_v2
+					;;
+				remove|0)
+					z2_games_clear
+					z2_restart_v2
+					;;
+				*)
+					json_error "Игры: 1-4, xtreme или remove"
+					return
+					;;
+			esac
+			;;
+		bcw-start)
+			z2_bcw_available || { json_error "blockcheckw не найден. Установите https://github.com/rcd27/blockcheckw"; return; }
+			if z2_bcw_running; then
+				json_error "Поиск уже выполняется"
+				return
+			fi
+			mode=$(printf '%s' "$POST_JSON" | jq -r '.mode // "quick"')
+			workers=$(printf '%s' "$POST_JSON" | jq -r '.workers // empty')
+			proto=$(printf '%s' "$POST_JSON" | jq -r '.proto // empty')
+			domains=$(printf '%s' "$POST_JSON" | jq -r '.domains // empty')
+			timeout=$(printf '%s' "$POST_JSON" | jq -r '.timeout // empty')
+			dns=$(printf '%s' "$POST_JSON" | jq -r '.dns // empty')
+			cfg=$(z2_bcw_settings)
+			[ -n "$workers" ] || workers=$(printf '%s' "$cfg" | jq -r '.workers')
+			[ -n "$proto" ] || proto=$(printf '%s' "$cfg" | jq -r '.proto')
+			[ -n "$domains" ] || domains=$(printf '%s' "$cfg" | jq -r '.domains')
+			[ -n "$timeout" ] || timeout=$(printf '%s' "$cfg" | jq -r '.timeout')
+			[ -n "$dns" ] || dns=$(printf '%s' "$cfg" | jq -r '.dns')
+			maxw=$(z2_default_workers)
+			[ "$workers" -gt 128 ] 2>/dev/null && workers=128
+			[ "$workers" -lt 1 ] 2>/dev/null && workers="$maxw"
+			case "$mode" in quick|full|universal) ;; *) json_error "mode: quick|full|universal"; return ;; esac
+			if ! z2_bcw_start "$mode" "$workers" "$proto" "$domains" "$timeout" "$dns"; then
+				json_error "Не удалось запустить поиск"
+				return
+			fi
+			;;
+		bcw-stop)
+			z2_bcw_stop
+			;;
+		bcw-embed)
+			profile=$(printf '%s' "$POST_JSON" | jq -r '.profile // empty')
+			mode=$(printf '%s' "$POST_JSON" | jq -r '.mode // "circular-front"')
+			args=$(printf '%s' "$POST_JSON" | jq -r '.args // empty')
+			new_name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			domains=$(printf '%s' "$POST_JSON" | jq -r '.domains // empty')
+			[ -n "$domains" ] || domains=$(z2_bcw_settings | jq -r '.domains // empty')
+			[ -n "$args" ] || { json_error "Нет аргументов стратегии"; return; }
+			if [ "$mode" != "new" ] && [ -z "$profile" ]; then
+				json_error "Укажите профиль"
+				return
+			fi
+			embedded=$(z2_embed_into "$profile" "$mode" "$args" "$new_name" "$domains")
+			rc=$?
+			if [ "$rc" -eq 2 ]; then
+				json_error "Эта стратегия уже есть в профиле"
+				return
+			fi
+			if [ "$rc" -ne 0 ]; then
+				json_error "Не удалось встроить стратегию"
+				return
+			fi
+			z2_restart_v2
+			;;
+		backup)
+			case "$value" in
+				save) z2_backup_save || { json_error "Нет /etc/config/zapret2"; return; } ;;
+				restore) z2_backup_restore || { json_error "Бэкап не найден"; return; }; z2_restart_v2 ;;
+				delete) rm -f "$Z2_BACKUP" ;;
+				*) json_error "backup: save|restore|delete"; return ;;
+			esac
+			;;
+		reload-lists)
+			[ -x "$Z2_INIT" ] && "$Z2_INIT" reload >/dev/null 2>&1
+			;;
+		slottest-start)
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			keep=$(printf '%s' "$POST_JSON" | jq -r '.keep // 5')
+			[ -n "$name" ] || { json_error "Укажите профиль"; return; }
+			case "$keep" in ''|*[!0-9]*) keep=5 ;; esac
+			if z2_slottest_running; then
+				json_error "Тест слотов уже выполняется"
+				return
+			fi
+			if z2_bcw_running; then
+				json_error "Сначала дождитесь поиска стратегий"
+				return
+			fi
+			if ! z2_slottest_start "$name" "$keep"; then
+				json_error "Не удалось запустить тест слотов"
+				return
+			fi
+			;;
+		slottest-stop)
+			z2_slottest_stop
+			;;
+		*)
+			json_error "Неизвестное действие"
+			return
+			;;
+	esac
+
+	z2_status_json | json_ok
+}
+
+case "$REQUEST_METHOD" in
+	GET)
+		case "$action" in
+			status|"")
+				if ! z2_installed; then
+					v1i=0; v1r=0; v1a=0
+					z1_installed && v1i=1
+					z1_running && v1r=1
+					z1_autostart && v1a=1
+					jq -n --argjson v1i "$v1i" --argjson v1r "$v1r" --argjson v1a "$v1a" '{
+						installed:false, running:false, autostart:false, enabled:false,
+						zapret1:{installed:($v1i==1), running:($v1r==1), autostart:($v1a==1)},
+						blockcheckw:{installed:false, version:"", running:false},
+						profiles:[], games:{active:null, xtreme:false}
+					}' | json_ok
+				else
+					z2_status_json | json_ok
+				fi
+				;;
+			bcw-status)
+				if [ -f "$Z2_JOB" ]; then
+					z2_mkdirs
+					run=0
+					z2_bcw_running && run=1
+					phase=$(jq -r '.phase // empty' "$Z2_JOB" 2>/dev/null)
+					if [ "$run" -eq 0 ] && [ "$phase" = "starting" ]; then
+						z2_job_write "$(jq '.phase="error" | .running=false | .error="Поиск не запустился"' "$Z2_JOB")"
+					fi
+					logf="$Z2_TMP/bcw-log-tail.txt"
+					if [ -f "$Z2_JOB_LOG" ]; then
+						tail -n 80 "$Z2_JOB_LOG" > "$logf" 2>/dev/null || : > "$logf"
+					else
+						: > "$logf"
+					fi
+					jq -n --slurpfile job "$Z2_JOB" --rawfile log "$logf" --argjson running "$run" \
+						--argjson now "$(date +%s)" \
+						'{job:($job[0] + {running:($running==1), now:$now}), log:$log}' | json_ok
+				else
+					jq -n '{job:{running:false, phase:"idle"}, log:""}' | json_ok
+				fi
+				;;
+			bcw-result)
+				stamp=$(get_query_param "id" "")
+				[ -n "$stamp" ] || { json_error "Укажите id"; exit 0; }
+				if detail=$(z2_result_detail "$stamp" 2>/dev/null); then
+					printf '%s' "$detail" | json_ok
+				else
+					json_error "Отчёт не найден"
+				fi
+				;;
+			slottest-status)
+				if [ -f "$Z2_ST_JOB" ]; then
+					z2_mkdirs
+					run=0
+					z2_slottest_running && run=1
+					phase=$(jq -r '.phase // empty' "$Z2_ST_JOB" 2>/dev/null)
+					if [ "$run" -eq 0 ] && [ "$phase" = "starting" ]; then
+						z2_slottest_write "$(jq '.phase="error" | .running=false | .error="Тест не запустился"' "$Z2_ST_JOB")"
+					fi
+					logf="$Z2_TMP/slottest-log-tail.txt"
+					if [ -f "$Z2_ST_LOG" ]; then
+						tail -n 80 "$Z2_ST_LOG" > "$logf" 2>/dev/null || : > "$logf"
+					else
+						: > "$logf"
+					fi
+					jq -n --slurpfile job "$Z2_ST_JOB" --rawfile log "$logf" --argjson running "$run" \
+						'{job:($job[0] + {running:($running==1)}), log:$log}' | json_ok
+				else
+					jq -n '{job:{running:false, phase:"idle"}, log:""}' | json_ok
+				fi
+				;;
+			*)
+				json_error "Неизвестный GET action"
+				;;
+		esac
+		;;
+	POST)
+		[ -n "$POST_JSON" ] || { json_error "Пустой запрос"; exit 0; }
+		case "$action" in
+			apply) api_apply ;;
+			*) json_error "Неизвестный POST action" ;;
+		esac
+		;;
+	*)
+		json_error "Method not allowed"
+		;;
+esac
+exit 0
