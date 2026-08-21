@@ -187,6 +187,21 @@ z2_set_script() {
 	uci -q commit zapret2
 }
 
+# New strategy section defaults (LuCI MultiValue lists: protocol, filter_l3, filter_l7).
+z2_uci_init_strategy() {
+	name="$1"
+	[ -n "$name" ] || return 1
+	uci -q set "zapret2.$name=strategy"
+	uci -q set "zapret2.$name.enabled=1"
+	uci -q set "zapret2.$name.port=443"
+	uci -q delete "zapret2.$name.protocol" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.protocol=tcp"
+	uci -q delete "zapret2.$name.filter_l3" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.filter_l3=ipv4"
+	uci -q delete "zapret2.$name.filter_l7" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.filter_l7=tls"
+}
+
 z2_parse_script() {
 	script="$1"
 	printf '%s\n' "$script" | awk '
@@ -210,6 +225,38 @@ z2_parse_script() {
 			if (extra != "") return fn " " extra
 			return fn
 		}
+		function sid_of(tok) {
+			if (tok !~ /^--lua-desync=/) return 0
+			if (!match(tok, /:strategy=[0-9]+/)) return 0
+			return substr(tok, RSTART + 10, RLENGTH - 10) + 0
+		}
+		function add_inst(sid, tok) {
+			if (sid <= 0) return
+			ninst[sid]++
+			inst[sid, ninst[sid]] = tok
+			if (tok ~ /:final/) fin[sid] = 1
+			if (sid > maxid) maxid = sid
+			if (!(sid in seen)) { seen[sid] = 1; ids[++nid] = sid }
+		}
+		function compact(sid,   n, d, ok, i) {
+			n = ninst[sid]
+			if (n < 2) return
+			for (d = 1; d <= int(n / 2); d++) {
+				if (n % d != 0) continue
+				ok = 1
+				for (i = d + 1; i <= n; i++) {
+					if (inst[sid, i] != inst[sid, i - d]) { ok = 0; break }
+				}
+				if (ok) { ninst[sid] = d; return }
+			}
+		}
+		function lab_of_slot(sid,   k, tok) {
+			tok = inst[sid, 1]
+			for (k = 1; k <= ninst[sid]; k++) {
+				if (inst[sid, k] ~ /^--lua-desync=/) { tok = inst[sid, k]; break }
+			}
+			return label_of(tok)
+		}
 		{
 			n = split($0, parts, /[[:space:]]+--/)
 			for (i = 1; i <= n; i++) {
@@ -220,25 +267,52 @@ z2_parse_script() {
 			}
 		}
 		END {
-			print "{"
-			printf "\"prefix\":["
+			prefix_done = 0
+			seen_circ = 0
+			last_sid = 0
+			pendc = 0
 			pc = 0
 			for (i = 1; i <= nt; i++) {
 				tok = tokens[i]
-				sid = 0
-				if (tok ~ /^--lua-desync=/ && match(tok, /:strategy=[0-9]+/)) {
-					sid = substr(tok, RSTART + 10, RLENGTH - 10) + 0
+				sid = sid_of(tok)
+				if (!prefix_done) {
+					if (sid > 0) {
+						prefix_done = 1
+					} else if (index(tok, "lua-desync=circular")) {
+						seen_circ = 1
+						pre[++pc] = tok
+						continue
+					} else if (seen_circ && tok == "--in-range=x") {
+						pre[++pc] = tok
+						prefix_done = 1
+						continue
+					} else {
+						pre[++pc] = tok
+						continue
+					}
 				}
 				if (sid > 0) {
-					ninst[sid]++
-					inst[sid, ninst[sid]] = tok
-					if (tok ~ /:final/) fin[sid] = 1
-					if (sid > maxid) maxid = sid
-					if (!(sid in seen)) { seen[sid] = 1; ids[++nid] = sid }
-				} else if (maxid == 0) {
-					if (pc++) printf ","
-					printf "\"%s\"", esc(tok)
+					for (p = 1; p <= pendc; p++) add_inst(sid, pending[p])
+					pendc = 0
+					add_inst(sid, tok)
+					last_sid = sid
+				} else {
+					pending[++pendc] = tok
 				}
+			}
+			if (pendc > 0) {
+				if (last_sid > 0) {
+					for (p = 1; p <= pendc; p++) add_inst(last_sid, pending[p])
+				} else {
+					for (p = 1; p <= pendc; p++) pre[++pc] = pending[p]
+				}
+			}
+			for (j = 1; j <= nid; j++) compact(ids[j])
+			print "{"
+			printf "\"prefix\":["
+			for (i = 1; i <= pc; i++) {
+				if (i > 1) printf ","
+				printf "\"%s\"", esc(pre[i])
 			}
 			print "],"
 			printf "\"slots\":["
@@ -246,7 +320,7 @@ z2_parse_script() {
 			for (j = 1; j <= nid; j++) {
 				sid = ids[j]
 				if (sc++) printf ","
-				printf "{\"id\":%d,\"final\":%s,\"label\":\"%s\",\"instances\":[", sid, (fin[sid] ? "true" : "false"), esc(label_of(inst[sid, 1]))
+				printf "{\"id\":%d,\"final\":%s,\"label\":\"%s\",\"instances\":[", sid, (fin[sid] ? "true" : "false"), esc(lab_of_slot(sid))
 				for (k = 1; k <= ninst[sid]; k++) {
 					if (k > 1) printf ","
 					printf "\"%s\"", esc(inst[sid, k])
@@ -364,8 +438,9 @@ z2_apply_circular() {
 	nocycle_flag=0
 	[ "$no_cycle" = "true" ] && nocycle_flag=1
 	new=$(printf '%s\n' "$stream" | awk -v nocycle="$nocycle_flag" '
-		function strip_final(s) { gsub(/:final/, "", s); return s }
 		function set_strat(s, n) {
+			if (s !~ /^--lua-desync=/) return s
+			gsub(/:final/, "", s)
 			if (match(s, /:strategy=[0-9]+/))
 				return substr(s, 1, RSTART - 1) ":strategy=" n substr(s, RSTART + RLENGTH)
 			return s ":strategy=" n
@@ -382,11 +457,16 @@ z2_apply_circular() {
 			if (prefix != "") print prefix
 			for (i = 1; i <= ns; i++) {
 				n = split(slots[i], L, "\n")
+				keep_tls = 0
 				lastj = 0
-				for (j = 1; j <= n; j++) if (L[j] != "") lastj = j
+				for (j = 1; j <= n; j++) {
+					if (L[j] ~ /^--payload=/ && L[j] != "--payload=tls_client_hello") keep_tls = 1
+					if (L[j] ~ /^--lua-desync=/) lastj = j
+				}
 				for (j = 1; j <= n; j++) {
 					if (L[j] == "") continue
-					line = set_strat(strip_final(L[j]), i)
+					if (L[j] == "--payload=tls_client_hello" && !keep_tls) continue
+					line = set_strat(L[j], i)
 					if (nocycle && i == ns && j == lastj && line !~ /:final/) line = line ":final"
 					print line
 				}
@@ -660,41 +740,26 @@ z2_circ_style_detect() {
 	'
 }
 
-z2_circ_has_wssize() {
-	printf '%s' "$1" | jq '[.prefix[]?, .slots[].instances[]?] | map(select(contains("lua-desync=wssize"))) | length > 0'
-}
-
 z2_circ_prefix_lines() {
 	style=$(z2_circ_style_norm "$1")
-	wss="$2"
 	if [ "$style" = "pkts" ]; then
-		printf '%s\n' '--out-range=-d20' '--payload=tls_client_hello' '--in-range=-d10'
-		[ "$wss" = "1" ] && printf '%s\n' '--lua-desync=wssize:wsize=1:scale=6:forced_cutoff=tls_server_hello'
-		printf '%s\n' '--lua-desync=circular:fails=2:maxtime=60:retrans=3:nld=2:reset' '--in-range=x'
+		printf '%s\n' '--out-range=-d20' '--payload=tls_client_hello' '--in-range=-d10' \
+			'--lua-desync=circular:fails=2:maxtime=60:retrans=3:nld=2:reset' '--in-range=x'
 	else
-		printf '%s\n' '--out-range=-s34228' '--payload=tls_client_hello' '--in-range=-s5556'
-		[ "$wss" = "1" ] && printf '%s\n' '--lua-desync=wssize:wsize=1:scale=6:forced_cutoff=tls_server_hello'
-		printf '%s\n' '--lua-desync=circular:fails=3:maxtime=60' '--in-range=x'
+		printf '%s\n' '--out-range=-s34228' '--payload=tls_client_hello' '--in-range=-s5556' \
+			'--lua-desync=circular:fails=3:maxtime=60' '--in-range=x'
 	fi
 }
 
 z2_circular_prefix() {
-	z2_circ_prefix_lines "${1:-seq}" "${2:-0}"
+	z2_circ_prefix_lines "${1:-seq}"
 }
 
 z2_restyle_parsed() {
-	parsed="$1"
+	_rs_parsed="$1"
 	style=$(z2_circ_style_norm "$2")
-	wss="$3"
-	pre=$(z2_circ_prefix_lines "$style" "$wss" | jq -R -s 'split("\n") | map(select(length>0))')
-	printf '%s' "$parsed" | jq --argjson pre "$pre" '
-		.prefix = $pre
-		| .slots = [
-			.slots[]
-			| .instances = [.instances[] | select(contains("lua-desync=wssize") | not)]
-			| select((.instances | length) > 0)
-		]
-	'
+	pre=$(z2_circ_prefix_lines "$style" | jq -R -s 'split("\n") | map(select(length>0))')
+	printf '%s' "$_rs_parsed" | jq --argjson pre "$pre" '.prefix = $pre'
 }
 
 z2_restyle_profile() {
@@ -709,10 +774,8 @@ z2_restyle_profile() {
 		style=$(z2_circ_style_detect "$parsed")
 	fi
 	[ -n "$force" ] && style=$(z2_circ_style_norm "$force")
-	wss=0
-	[ "$(z2_circ_has_wssize "$parsed")" = "true" ] && wss=1
 	disabled=$(jq -c --arg n "$name" '.profiles[$n].disabled // []' "$Z2_STATE")
-	parsed=$(z2_restyle_parsed "$parsed" "$style" "$wss")
+	parsed=$(z2_restyle_parsed "$parsed" "$style")
 	new_dis=$(printf '%s' "$parsed" | jq -c --argjson dis "$disabled" '
 		[range(0; .slots|length) as $si | {old:.slots[$si].id, new:($si+1)}] as $map
 		| [$dis[] as $d | ($map[] | select(.old==$d) | .new)]
@@ -736,27 +799,34 @@ z2_set_circ_style() {
 	z2_apply_circular "$name"
 }
 
-z2_embed_drop_wssize() {
-	awk 'index($0, "lua-desync=wssize")==0'
+# Prefix already has --payload=tls_client_hello. Keep it in a slot only
+# when that slot also switches payload (typically --payload=empty).
+z2_drop_redundant_tls_payload() {
+	awk '
+		{ lines[++n] = $0 }
+		END {
+			keep_tls = 0
+			for (i = 1; i <= n; i++) {
+				if (lines[i] ~ /^--payload=/ && lines[i] != "--payload=tls_client_hello") keep_tls = 1
+			}
+			for (i = 1; i <= n; i++) {
+				if (lines[i] == "--payload=tls_client_hello" && !keep_tls) continue
+				print lines[i]
+			}
+		}
+	'
 }
 
 z2_embed_instances() {
 	z2_strip_filters "$1" | awk '
-		/^--lua-desync=/ {
-			if (index($0, "lua-desync=circular")) next
-			print
-			next
-		}
-		/^--lua-init/ { print; next }
-		/^--payload=/ && $0 != "--payload=tls_client_hello" { print; next }
-		/^--out-range=/ { next }
-		/^--in-range=/ { next }
-	'
+		index($0, "lua-desync=circular") { next }
+		{ print }
+	' | z2_drop_redundant_tls_payload
 }
 
 z2_stamp_instances() {
 	id="$1"
-	awk -v id="$id" '
+	z2_drop_redundant_tls_payload | awk -v id="$id" '
 		/^--lua-desync=/ {
 			t=$0
 			gsub(/:strategy=[0-9]+/, "", t)
@@ -801,15 +871,14 @@ z2_promote_slots() {
 }
 
 z2_ensure_circ_prefix() {
-	parsed="$1"
+	_ec_parsed="$1"
 	style=$(z2_circ_style_norm "$2")
-	wss="$3"
-	has=$(printf '%s' "$parsed" | jq '[.prefix[]? | select(contains("lua-desync=circular"))] | length')
+	has=$(printf '%s' "$_ec_parsed" | jq '[.prefix[]? | select(contains("lua-desync=circular"))] | length')
 	if [ "$has" -gt 0 ] 2>/dev/null; then
-		printf '%s' "$parsed"
+		printf '%s' "$_ec_parsed"
 		return 0
 	fi
-	z2_restyle_parsed "$parsed" "$style" "$wss"
+	z2_restyle_parsed "$_ec_parsed" "$style"
 }
 
 z2_inst_fingerprint() {
@@ -822,20 +891,23 @@ z2_inst_fingerprint() {
 			next
 		}
 		/^--lua-init/ { print; next }
+		/^--payload=/ { print; next }
+		/^--out-range=/ { print; next }
+		/^--in-range=/ { print; next }
 	' | tr '\n' '|'
 }
 
 z2_slot_has_fingerprint() {
-	parsed="$1"
-	want="$2"
-	[ -n "$want" ] || return 1
-	slotn=$(printf '%s' "$parsed" | jq '.slots | length')
-	si=0
-	while [ "$si" -lt "$slotn" ]; do
-		inst=$(printf '%s' "$parsed" | jq -r --argjson i "$si" '.slots[$i].instances[]')
-		fp=$(printf '%s\n' "$inst" | z2_inst_fingerprint)
-		[ "$fp" = "$want" ] && return 0
-		si=$((si + 1))
+	_fh_parsed="$1"
+	_fh_want="$2"
+	[ -n "$_fh_want" ] || return 1
+	_fh_n=$(printf '%s' "$_fh_parsed" | jq '.slots | length')
+	_fh_i=0
+	while [ "$_fh_i" -lt "$_fh_n" ]; do
+		_fh_inst=$(printf '%s' "$_fh_parsed" | jq -r --argjson i "$_fh_i" '.slots[$i].instances[]')
+		_fh_fp=$(printf '%s\n' "$_fh_inst" | z2_inst_fingerprint)
+		[ "$_fh_fp" = "$_fh_want" ] && return 0
+		_fh_i=$((_fh_i + 1))
 	done
 	return 1
 }
@@ -868,18 +940,17 @@ z2_embed_list() {
 		[ -n "$new_name" ] || new_name="panel_$(date +%H%M%S)"
 		new_name=$(printf '%s' "$new_name" | tr -c 'A-Za-z0-9_' '_' | sed 's/^_//;s/_$//')
 		[ -n "$new_name" ] || return 1
-		uci -q set "zapret2.$new_name=strategy"
-		uci -q set "zapret2.$new_name.enabled=1"
-		uci -q set "zapret2.$new_name.port=443"
-		uci -q set "zapret2.$new_name.protocol=tcp"
-		uci -q delete "zapret2.$new_name.filter_l3" 2>/dev/null || true
-		uci -q add_list "zapret2.$new_name.filter_l3=ipv4"
-		uci -q delete "zapret2.$new_name.filter_l7" 2>/dev/null || true
-		uci -q add_list "zapret2.$new_name.filter_l7=tls"
+		z2_uci_init_strategy "$new_name"
 		uci -q delete "zapret2.$new_name.hostlist" 2>/dev/null || true
 		uci -q commit zapret2
+		# LuCI Filter L7 = TLS (nfqws2 --filter-l7=tls)
+		if [ "$(uci -q get "zapret2.$new_name.filter_l7")" != "tls" ]; then
+			uci -q delete "zapret2.$new_name.filter_l7" 2>/dev/null || true
+			uci -q add_list "zapret2.$new_name.filter_l7=tls"
+			uci -q commit zapret2
+		fi
 		target="$new_name"
-		pre=$(z2_circ_prefix_lines seq 0 | jq -R -s 'split("\n") | map(select(length>0))')
+		pre=$(z2_circ_prefix_lines seq | jq -R -s 'split("\n") | map(select(length>0))')
 		parsed=$(jq -n --argjson pre "$pre" '{prefix:$pre, slots:[]}')
 		z2_state_init
 	else
@@ -895,8 +966,6 @@ z2_embed_list() {
 			parsed=$(printf '%s' "$parsed" | jq '.slots = []')
 		fi
 	fi
-	wss_any=0
-	[ "$(z2_circ_has_wssize "$parsed")" = "true" ] && wss_any=1
 	new_slots='[]'
 	added=0
 	next_id=$(printf '%s' "$parsed" | jq '[.slots[].id] | max // 0')
@@ -906,8 +975,6 @@ z2_embed_list() {
 		ei=$((ei + 1))
 		[ -n "$raw_one" ] || continue
 		inst_one=$(z2_embed_instances "$raw_one")
-		printf '%s\n' "$inst_one" | grep -q 'lua-desync=wssize' && wss_any=1
-		inst_one=$(printf '%s\n' "$inst_one" | z2_embed_drop_wssize)
 		printf '%s\n' "$inst_one" | grep -q '^--lua-desync=' || continue
 		fp_one=$(printf '%s\n' "$inst_one" | z2_inst_fingerprint)
 		[ -n "$fp_one" ] || continue
@@ -924,7 +991,7 @@ z2_embed_list() {
 		added=$((added + 1))
 	done
 	[ "$added" -ge 1 ] || return 2
-	parsed=$(z2_restyle_parsed "$parsed" "$style" "$wss_any")
+	parsed=$(z2_restyle_parsed "$parsed" "$style")
 	parsed=$(printf '%s' "$parsed" | jq --argjson ns "$new_slots" '.slots = $ns + .slots')
 	new_canon=$(printf '%s' "$parsed" | jq -r '((.prefix | join("\n")) + "\n" + ([.slots[] | .instances[]] | join("\n")))')
 	hash=$(z2_hash "$new_canon")
