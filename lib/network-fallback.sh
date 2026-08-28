@@ -1,6 +1,4 @@
 #!/bin/sh
-# Обход недоступности GitHub при маршрутизации через Zeroblock (cdn_github в AWG).
-# Важно: не останавливаем Zeroblock — stop ломает демон и DNS на роутере.
 
 github_hosts_present() {
 	grep -q 'raw\.githubusercontent\.com' /etc/hosts 2>/dev/null
@@ -22,7 +20,6 @@ ensure_github_hosts() {
 	return 0
 }
 
-# Добавить зеркала GitHub в /etc/hosts (как в Zapret Manager) и повторить загрузку.
 apply_github_access_fallback() {
 	ensure_github_hosts
 	return 0

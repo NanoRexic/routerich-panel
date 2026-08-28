@@ -172,8 +172,6 @@ warpgen_fetch_one() {
 }
 
 warpgen_fetch_json() {
-	# Актуально для warp-gen.github.io (старый warp-generator.github.io редиректит сюда)
-	# Порядок: рабочие vercel-зеркала → workers → legacy
 	if json_body=$(warpgen_fetch_one \
 		'https://warp-vercel-chi.vercel.app/api/warp-data' \
 		'https://warp-gen.github.io' \
@@ -219,7 +217,6 @@ warpgen_fetch_json() {
 		return 0
 	fi
 
-	# Legacy (могут быть недоступны)
 	if json_body=$(warpgen_fetch_one \
 		'https://warp-generator-config.vercel.app/api/warp-data' \
 		'https://warp-generator-config.vercel.app' \

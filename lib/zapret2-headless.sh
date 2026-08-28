@@ -17,7 +17,6 @@ Z2_ST_JOB="$Z2_TMP/slottest-job.json"
 Z2_ST_LOG="$Z2_TMP/slottest.log"
 Z2_ST_PID="$Z2_TMP/slottest.pid"
 
-# Same port sets as Zapret v1 Gv (no v1 modifiers)
 Z2_PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"
 Z2_PORTS_TCP="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442"
 Z2_XTREME_PORTS="80,88,444-65535"
@@ -171,7 +170,6 @@ z2_restart_v2() {
 	"$Z2_INIT" restart >/dev/null 2>&1
 }
 
-# Quiet stop of zapret2 used by Zapret v1 API (exclusive engine)
 stop_zapret2_exclusive() {
 	z2_stop_v2
 }
@@ -187,7 +185,6 @@ z2_set_script() {
 	uci -q commit zapret2
 }
 
-# New strategy section defaults (LuCI MultiValue lists: protocol, filter_l3, filter_l7).
 z2_uci_init_strategy() {
 	name="$1"
 	[ -n "$name" ] || return 1
@@ -391,7 +388,6 @@ z2_parsed_to_canon_numbered() {
 	fi
 }
 
-# Slot numbers follow visual order 1..M (circular-front insert becomes #1).
 z2_slots_normalize_ids() {
 	name="$1"
 	z2_state_init
@@ -799,8 +795,6 @@ z2_set_circ_style() {
 	z2_apply_circular "$name"
 }
 
-# Prefix already has --payload=tls_client_hello. Keep it in a slot only
-# when that slot also switches payload (typically --payload=empty).
 z2_drop_redundant_tls_payload() {
 	awk '
 		{ lines[++n] = $0 }
@@ -943,7 +937,6 @@ z2_embed_list() {
 		z2_uci_init_strategy "$new_name"
 		uci -q delete "zapret2.$new_name.hostlist" 2>/dev/null || true
 		uci -q commit zapret2
-		# LuCI Filter L7 = TLS (nfqws2 --filter-l7=tls)
 		if [ "$(uci -q get "zapret2.$new_name.filter_l7")" != "tls" ]; then
 			uci -q delete "zapret2.$new_name.filter_l7" 2>/dev/null || true
 			uci -q add_list "zapret2.$new_name.filter_l7=tls"
@@ -1143,7 +1136,6 @@ z2_bcw_elapsed() {
 	fi
 }
 
-# blockcheckw keeps a TTY progress bar; redirected logs stay silent between [START] and [DONE].
 z2_bcw_wait() {
 	"$@" >>"$Z2_JOB_LOG" 2>&1 &
 	cmdpid=$!
@@ -1177,7 +1169,6 @@ z2_take_n() {
 	printf '%s' "$n"
 }
 
-# Strip nfqws2 prefix; keep rank order. No jq regex (OpenWrt jq may lack oniguruma).
 z2_strip_nfqws2() {
 	awk '{
 		s=$0
@@ -1445,13 +1436,11 @@ z2_bcw_stop() {
 	fi
 	killall blockcheckw >/dev/null 2>&1 || true
 	rm -f "$Z2_JOB_PID" "$Z2_CMD_PID"
-	# Already finished — execute() restored zapret2. Don't stop it again.
 	case "$phase" in
 		done|error|stopped)
 			return 0
 			;;
 	esac
-	# workers spawn nfqws2 — zapret2 restart/start will recreate service ones
 	if [ "$restore" = "true" ]; then
 		z2_start_v2 >/dev/null 2>&1 || true
 	else

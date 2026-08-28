@@ -75,8 +75,6 @@ api_zapret2_status_json() {
 		z2_installed=1
 	fi
 	if [ -f /etc/init.d/zapret2 ]; then
-		# init.d status уже отдаёт "running" / "inactive" (см. /etc/init.d/zapret2)
-		# Не использовать tr '[:upper:]' — на BusyBox ломает строку (running → rlnning)
 		status_out=$(/etc/init.d/zapret2 status 2>/dev/null | head -n1 | tr -d '\r\n\t ')
 		case "$status_out" in
 			running|started|active) z2_running=1 ;;
@@ -120,7 +118,6 @@ disable_zapret2_api() {
 	return 0
 }
 
-# Zapret v1 и Zapret2 не должны работать одновременно.
 ensure_exclusive_v1() {
 	if command -v stop_zapret2_exclusive >/dev/null 2>&1; then
 		stop_zapret2_exclusive
@@ -182,7 +179,6 @@ api_install_zapret() {
 }
 
 api_status() {
-	# Не вызывать ensure_github_hosts здесь: статус после «выкл. GitHub» снова дописывал блок.
 	uci_init_ran=0
 	uci_ready=0
 	if [ -f /etc/init.d/zapret ]; then
@@ -393,23 +389,72 @@ api_test_run() {
 }
 
 api_youtube_list() {
-	# Возвращает JSON-массив в stdout; 0 — ok, 1 — ошибка (без json_error — caller сам оборачивает)
 	mkdir -p "$TMP_SF"
 	fetch_youtube_list "$TMP_LIST" || return 1
-	# StrYoutube / TestStrYoutube: #Yv01; старый ListStrYou: Yv01
 	awk 'BEGIN{printf "["} /^(#)?Yv[0-9]+/{ if (n++) printf ","; name=$0; sub(/^#/,"",name); printf "\"%s\"", name } END{printf "]\n"}' "$TMP_LIST"
 }
 
-api_apply() {
-	require_zapret_uci || return
+api_apply_hosts_only() {
+	target=$(printf '%s' "$POST_JSON" | jq -r '.target // empty')
+	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
+	case "$target" in
+		toggle)
+			[ "$value" = "finland" ] || { json_error "Неизвестный переключатель"; return; }
+			zapret_exec toggle_finland_hosts
+			;;
+		hosts)
+			case "$value" in
+				nalog) zapret_exec toggle_block "$NALOG" ;;
+				rutor) zapret_exec toggle_block "$RUTOR" ;;
+				ntc) zapret_exec toggle_block "$NTC" ;;
+				instagram) zapret_exec toggle_block "$INSTAGRAM" ;;
+				librusec) zapret_exec toggle_block "$LIBRUSEC" ;;
+				ai) zapret_exec toggle_block "$AI" ;;
+				twitch) zapret_exec toggle_block "$TWCH" ;;
+				tgweb) zapret_exec toggle_block "$TGWeb" ;;
+				spotify) zapret_exec toggle_block "$SPFY" ;;
+				supercell) zapret_exec toggle_block "$SCell" ;;
+				github) zapret_exec toggle_block "$GITH" ;;
+				all) zapret_exec toggle_all ;;
+				geohide) zapret_exec add_GEO_HOSTS ;;
+				mafioznik)
+					wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_mafioznik.txt >/dev/null 2>&1 || { json_error "Не удалось скачать hosts"; return; }
+					/etc/init.d/dnsmasq restart >/dev/null 2>&1
+					;;
+				malw)
+					wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_malw.link.txt >/dev/null 2>&1 || { json_error "Не удалось скачать hosts"; return; }
+					/etc/init.d/dnsmasq restart >/dev/null 2>&1
+					;;
+				reset) zapret_exec hosts_reset ;;
+				*)
+					json_error "Неизвестный блок hosts"; return ;;
+			esac
+			;;
+		*)
+			json_error "Неизвестное действие"; return ;;
+	esac
+	api_status | json_ok
+}
 
+api_apply() {
 	target=$(printf '%s' "$POST_JSON" | jq -r '.target // empty')
 	value=$(printf '%s' "$POST_JSON" | jq -r '.value // empty')
 
 	case "$target" in
+		hosts) api_apply_hosts_only; return ;;
+		toggle)
+			if [ "$value" = "finland" ]; then
+				api_apply_hosts_only
+				return
+			fi
+			;;
+	esac
+
+	require_zapret_uci || return
+
+	case "$target" in
 		stop|zapret2_disable) ;;
 		*)
-			# Любое действие, которое поднимает nfqws, гасит Zapret2.
 			ensure_exclusive_v1
 			;;
 	esac
@@ -457,7 +502,6 @@ api_apply() {
 			;;
 		youtube)
 			[ -n "$value" ] || { json_error "Укажите Yv-стратегию"; return; }
-			# value из UI: Yv01; в TestStrYoutube заголовок: #Yv01
 			value="${value#\#}"
 			mkdir -p "$TMP_SF"
 			fetch_youtube_list "$TMP_LIST" || { json_error "Не удалось скачать список"; return; }

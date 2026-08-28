@@ -1,607 +1,640 @@
-'use strict';
-
-const overlay = document.getElementById('modal-overlay');
-const configText = document.getElementById('config-text');
-const modalError = document.getElementById('modal-error');
-const savedPicker = document.getElementById('saved-picker');
-const savedSelect = document.getElementById('saved-select');
-const dropZone = document.getElementById('drop-zone');
-const notify = () => window.RouteRichNotify;
-const fileInput = document.getElementById('file-input');
-const awgIfacePicker = document.getElementById('awg-iface-picker');
-const awgIfaceSelect = document.getElementById('awg-iface-select');
-
-let savedVariants = [];
-let awgInterfaces = [];
-
-function showStatus(message, type, opts) {
-  const n = notify();
-  if (!n || !message) return;
-  opts = opts || {};
-  const t = type || 'info';
-  const progress = !!opts.progress;
-  n.show({
-    message: message,
-    type: t,
-    source: opts.source || 'Панель',
-    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'Панель')),
-    group: opts.group || 'panel-status',
-    stack: false,
-    toastOnly: true,
-    progress: progress,
-    persistent: progress,
-    duration: progress ? 0 : undefined
-  });
-}
-
-function hideStatus() {
-  const n = notify();
-  if (n?.dismissAllByGroup) n.dismissAllByGroup('panel-status');
-  else n?.dismissByGroup?.('panel-status');
-}
-
-function showModalStatus(message, type, opts) {
-  const n = notify();
-  if (!n || !message) return;
-  opts = opts || {};
-  const t = type || 'info';
-  const progress = !!opts.progress;
-  n.show({
-    message: message,
-    type: t,
-    source: 'AmneziaWG',
-    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'AmneziaWG')),
-    group: 'awg-status',
-    stack: false,
-    toastOnly: true,
-    progress: progress,
-    persistent: progress,
-    duration: progress ? 0 : undefined
-  });
-}
-
-function hideModalStatus() {
-  const n = notify();
-  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-status');
-  else n?.dismissByGroup?.('awg-status');
-}
-
-function clearConfigText() {
-  configText.value = '';
-}
-
-function populateAwgIfaceSelect(interfaces, selectedName) {
-  awgInterfaces = interfaces || [];
-  awgIfaceSelect.innerHTML = '';
-
-  if (!awgInterfaces.length) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = '— интерфейсы не найдены —';
-    awgIfaceSelect.appendChild(opt);
-    awgIfacePicker.hidden = true;
-    return;
-  }
-
-  awgInterfaces.forEach((item) => {
-    const opt = document.createElement('option');
-    opt.value = item.name;
-    opt.textContent = item.name + (item.up ? ' (поднят)' : ' (выключен)');
-    awgIfaceSelect.appendChild(opt);
-  });
-
-  const preferred = selectedName || awgInterfaces[0].name;
-  const found = awgInterfaces.some((item) => item.name === preferred);
-  awgIfaceSelect.value = found ? preferred : awgInterfaces[0].name;
-  awgIfacePicker.hidden = false;
-}
-
-async function loadAwgInterfaces() {
-  awgIfaceSelect.innerHTML = '<option value="">— загрузка... —</option>';
-  awgIfacePicker.hidden = false;
-
-  try {
-    const data = await apiGet('import-awg?action=list');
-    if (data.ok && data.interfaces && data.interfaces.length) {
-      populateAwgIfaceSelect(data.interfaces, data.default);
-      clearModalError();
-      return;
-    }
-    populateAwgIfaceSelect([]);
-    showModalError(data.error || 'На роутере нет интерфейсов AmneziaWG. Создайте их в LuCI.');
-  } catch (err) {
-    populateAwgIfaceSelect([]);
-    showModalError('Не удалось загрузить список интерфейсов: ' + err.message);
-  }
-}
-
-function showModal() {
-  clearConfigText();
-  clearModalError();
-  hideModalStatus();
-  overlay.hidden = false;
-  document.body.classList.add('modal-open');
-  loadSavedVariants();
-  loadAwgInterfaces();
-}
-
-function hideModal() {
-  overlay.hidden = true;
-  document.body.classList.remove('modal-open');
-}
-
-function clearModalError() {
-  if (modalError) {
-    modalError.hidden = true;
-    modalError.textContent = '';
-  }
-  const n = notify();
-  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-error');
-  else if (n?.dismissByGroup) n.dismissByGroup('awg-error');
-}
-
-function showModalError(msg) {
-  // Старая плашка #modal-error больше не используется — только центр уведомлений
-  if (modalError) {
-    modalError.hidden = true;
-    modalError.textContent = '';
-  }
-  if (!msg) {
-    clearModalError();
-    return;
-  }
-  const n = notify();
-  if (!n) return;
-  n.show({
-    message: msg,
-    type: 'error',
-    source: 'AmneziaWG',
-    title: 'Ошибка',
-    group: 'awg-error'
-  });
-}
-
-function isEmptyConfig(text) {
-  return !text.trim();
-}
-
-async function apiPost(path, body, contentType, query) {
-  let url = '/cgi-bin/' + path;
-  if (query && typeof query === 'object') {
-    const qs = new URLSearchParams(query).toString();
-    if (qs) url += '?' + qs;
-  }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': contentType || 'text/plain; charset=utf-8' },
-    body: body
-  });
-  const data = await res.json().catch(() => ({ ok: false, error: 'Некорректный ответ сервера' }));
-  if (!res.ok && !data.error) {
-    data.error = 'HTTP ' + res.status;
-  }
-  return data;
-}
-
-async function apiGet(path) {
-  const res = await fetch('/cgi-bin/' + path, { method: 'GET' });
-  const data = await res.json().catch(() => ({ ok: false, error: 'Некорректный ответ сервера' }));
-  if (!res.ok && !data.error) {
-    data.error = 'HTTP ' + res.status;
-  }
-  return data;
-}
-
-function populateSavedSelect(variants, selectedId) {
-  savedVariants = variants || [];
-  savedSelect.innerHTML = '<option value="">— выберите вариант —</option>';
-
-  if (!savedVariants.length) {
-    savedPicker.hidden = true;
-    return;
-  }
-
-  savedVariants.forEach((v) => {
-    const opt = document.createElement('option');
-    opt.value = v.id;
-    const endpoint = v.endpoint ? ' (' + v.endpoint + ')' : '';
-    opt.textContent = v.name + endpoint;
-    savedSelect.appendChild(opt);
-  });
-
-  savedPicker.hidden = false;
-
-  if (selectedId) {
-    savedSelect.value = selectedId;
-  }
-}
-
-async function loadSavedVariant(id) {
-  if (!id) {
-    clearConfigText();
-    return;
-  }
-
-  const cached = savedVariants.find((v) => v.id === id);
-  if (cached && cached.config) {
-    configText.value = cached.config.trim();
-    clearModalError();
-    return;
-  }
-
-  try {
-    const data = await apiGet('saved-awg?id=' + encodeURIComponent(id));
-    if (data.ok && data.config) {
-      configText.value = data.config.trim();
-      clearModalError();
-      const item = savedVariants.find((v) => v.id === id);
-      if (item) item.config = data.config;
-    } else {
-      showModalError(data.error || 'Не удалось загрузить конфиг');
-    }
-  } catch (err) {
-    showModalError('Ошибка сети: ' + err.message);
-  }
-}
-
-async function loadSavedVariants() {
-  try {
-    const data = await apiGet('saved-awg');
-    if (data.ok && data.variants && data.variants.length) {
-      populateSavedSelect(data.variants);
-    } else {
-      populateSavedSelect([]);
-    }
-  } catch (_) {
-    populateSavedSelect([]);
-  }
-}
-
-function applyGeneratedVariants(data) {
-  if (!data.variants || !data.variants.length) return;
-
-  populateSavedSelect(data.variants, data.variants[0].id);
-  configText.value = (data.variants[0].config || '').trim();
-  clearModalError();
-
-  const count = data.variants.length;
-  notify()?.show({
-    source: 'AmneziaWG',
-    title: 'Сгенерировано',
-    message: count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') + ' — выберите и импортируйте',
-    type: 'success',
-    toastOnly: true
-  });
-}
-
-const operaProxyMenuItem = document.getElementById('menu-item-opera-proxy');
-const operaProxyBtn = document.getElementById('btn-opera-proxy');
-
-function setOperaProxyVisible(visible) {
-  if (!operaProxyMenuItem) return;
-  operaProxyMenuItem.hidden = !visible;
-}
-
-async function refreshOperaProxyStatus() {
-  if (!operaProxyMenuItem) return;
-  try {
-    const data = await apiGet('fix-opera-proxy');
-    if (data.ok && data.data) {
-      if (data.data.podkop_detected || data.data.zeroblock_available === false) {
-        setOperaProxyVisible(false);
-        return;
-      }
-      setOperaProxyVisible(!!data.data.needs_fix);
-      if (operaProxyBtn) {
-        operaProxyBtn.title = data.data.needs_fix
-          ? 'Прокси ' + (data.data.http_proxy || '127.0.0.1:18080') + ' не отвечает — требуется исправление'
-          : '';
-      }
-    } else {
-      setOperaProxyVisible(false);
-    }
-  } catch (_) {
-    setOperaProxyVisible(false);
-  }
-}
-
-if (operaProxyBtn) {
-  operaProxyBtn.addEventListener('click', async () => {
-    showStatus('Opera-Proxy…', 'info', { title: 'Проверка', progress: true });
-    operaProxyBtn.disabled = true;
-
-    try {
-      const data = await apiPost('fix-opera-proxy', '');
-      if (data.ok) {
-        const d = data.data || {};
-        let msg = data.message || 'Opera-Proxy настроен.';
-        if (d.opera_proxy_version) msg += ' Версия: ' + d.opera_proxy_version + '.';
-        if (d.http_proxy) msg += ' Прокси: ' + d.http_proxy + '.';
-        if (d.custom_fix_applied === false) msg += ' Кастомный init не потребовался.';
-        hideStatus();
-        notify()?.success(msg, { source: 'Opera-Proxy', title: 'Прокси настроен' });
-        setOperaProxyVisible(false);
-      } else {
-        hideStatus();
-        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Opera-Proxy' });
-      }
-    } catch (err) {
-      hideStatus();
-      notify()?.error('Ошибка сети: ' + err.message, { source: 'Opera-Proxy' });
-    } finally {
-      operaProxyBtn.disabled = false;
-    }
-  });
-}
-
-refreshOperaProxyStatus();
-
-const panelUpdateBtn = document.getElementById('btn-update');
-let panelUpdateInfo = null;
-
-function getEmbeddedPanelVersion() {
-  const meta = document.querySelector('meta[name="routerich-version"]');
-  return meta && meta.content ? meta.content.trim() : '';
-}
-
-function versionGt(a, b) {
-  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) > (pb[i] || 0)) return true;
-    if ((pa[i] || 0) < (pb[i] || 0)) return false;
-  }
-  return false;
-}
-
-function versionMax(a, b) {
-  if (!a) return b || '';
-  if (!b) return a || '';
-  return versionGt(a, b) ? a : b;
-}
-
-function setPanelUpdateVisible(visible, info) {
-  if (!panelUpdateBtn) return;
-  panelUpdateInfo = info || null;
-  panelUpdateBtn.hidden = !visible;
-  if (visible && info && info.latest) {
-    panelUpdateBtn.title = 'Доступна версия ' + info.latest + ' (сейчас ' + (info.current || '?') + ')';
-  } else {
-    panelUpdateBtn.title = '';
-  }
-}
-
-async function clearPanelCacheAndReload() {
-  const stamp = String(Date.now());
-  try {
-    sessionStorage.setItem('routerich-hard-reload', stamp);
-  } catch (_) {}
-
-  if ('serviceWorker' in navigator) {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map((reg) => reg.unregister()));
-  }
-  if ('caches' in window) {
-    const keys = await caches.keys();
-    await Promise.all(keys.map((key) => caches.delete(key)));
-  }
-
-  const url = new URL(location.href);
-  url.searchParams.set('_', stamp);
-  url.hash = '';
-  location.replace(url.toString());
-}
-
-async function refreshPanelUpdateStatus() {
-  if (!panelUpdateBtn) return;
-  try {
-    const res = await fetch('/cgi-bin/panel-update?_=' + Date.now(), {
-      method: 'GET',
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
-    });
-    const data = await res.json().catch(() => ({ ok: false }));
-    if (data.ok && data.data) {
-      const embedded = getEmbeddedPanelVersion();
-      const serverCurrent = data.data.current || '';
-      const latest = data.data.latest || '';
-      // max(meta страницы, VERSION на роутере) — iOS часто кэширует одну сторону
-      const effectiveCurrent = versionMax(embedded, serverCurrent);
-      const needUpdate = !!(latest && versionGt(latest, effectiveCurrent));
-
-      if (needUpdate) {
-        setPanelUpdateVisible(true, {
-          current: effectiveCurrent || serverCurrent || '?',
-          latest: latest,
-          update_available: true,
-          remote_ok: data.data.remote_ok !== false
-        });
-        return;
-      }
-      if (data.data.remote_ok === false && panelUpdateBtn) {
-        panelUpdateBtn.title = 'Не удалось проверить обновления на GitHub (сеть или доступ к github.com)';
-      }
-    }
-    setPanelUpdateVisible(false);
-  } catch (_) {
-    setPanelUpdateVisible(false);
-  }
-}
-
-if (panelUpdateBtn) {
-  panelUpdateBtn.addEventListener('click', async () => {
-    const latest = panelUpdateInfo && panelUpdateInfo.latest;
-    const current = panelUpdateInfo && panelUpdateInfo.current;
-    const versionHint = latest ? ' до версии ' + latest : '';
-    const currentHint = current ? ' (сейчас ' + current + ')' : '';
-
-    if (!confirm('Обновить панель' + versionHint + '?' + currentHint + '\n\nСтраница перезагрузится автоматически после обновления.')) {
-      return;
-    }
-
-    showStatus('GitHub (до 2 мин)…', 'info', { title: 'Обновление', progress: true });
-    panelUpdateBtn.disabled = true;
-
-    try {
-      const data = await apiPost('panel-update', '');
-      if (data.ok) {
-        hideStatus();
-        notify()?.success((data.message || 'Панель обновлена.') + ' Перезагрузка…', { source: 'Обновление' });
-        await clearPanelCacheAndReload();
-      } else {
-        hideStatus();
-        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Обновление' });
-        panelUpdateBtn.disabled = false;
-      }
-    } catch (err) {
-      hideStatus();
-      notify()?.error('Ошибка сети: ' + err.message, { source: 'Обновление' });
-      panelUpdateBtn.disabled = false;
-    }
-  });
-}
-
-refreshPanelUpdateStatus();
-
-document.getElementById('btn-awg').addEventListener('click', showModal);
-document.getElementById('btn-cancel').addEventListener('click', hideModal);
-
-overlay.addEventListener('click', (e) => {
-  if (e.target === overlay) hideModal();
-});
-
-savedSelect.addEventListener('change', () => {
-  loadSavedVariant(savedSelect.value);
-});
-
-document.getElementById('btn-reboot').addEventListener('click', async () => {
-  if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
-  showStatus('Команда reboot…', 'info', { title: 'Перезагрузка', progress: true });
-  try {
-    const data = await apiPost('reboot', '');
-    if (data.ok) {
-      hideStatus();
-      notify()?.success('Роутер перезагружается. Подождите 1–2 минуты.', { source: 'Перезагрузка', title: 'Команда отправлена' });
-    } else {
-      hideStatus();
-      notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Перезагрузка' });
-    }
-  } catch (err) {
-    hideStatus();
-    notify()?.success('Роутер перезагружается (соединение прервано).', { source: 'Перезагрузка', title: 'Команда отправлена' });
-  }
-});
-
-document.getElementById('btn-generate').addEventListener('click', async () => {
-  clearModalError();
-  clearConfigText();
-  savedSelect.value = '';
-  const btn = document.getElementById('btn-generate');
-  const origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Генерация...';
-  showModalStatus('3 варианта AWG…', 'info', { title: 'Генерация', progress: true });
-  try {
-    const data = await apiGet('generate-awg');
-    if (data.ok && data.variants && data.variants.length) {
-      hideModalStatus();
-      applyGeneratedVariants(data);
-    } else {
-      hideModalStatus();
-      showModalError(data.error || 'Не удалось сгенерировать конфиг');
-    }
-  } catch (err) {
-    hideModalStatus();
-    showModalError('Ошибка сети: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = origText;
-  }
-});
-
-document.getElementById('btn-import').addEventListener('click', async () => {
-  const text = configText.value.trim();
-  const iface = awgIfaceSelect.value;
-  if (!iface) {
-    showModalError('Выберите интерфейс AmneziaWG');
-    return;
-  }
-  if (isEmptyConfig(text)) {
-    showModalError('Вставьте, выберите или сгенерируйте конфигурацию .conf');
-    return;
-  }
-  clearModalError();
-  const btn = document.getElementById('btn-import');
-  btn.disabled = true;
-  btn.textContent = 'Импорт...';
-  showModalStatus(iface, 'info', { title: 'Импорт', progress: true });
-  try {
-    const data = await apiPost('import-awg', text, undefined, { iface: iface });
-    if (data.ok) {
-      const appliedIface = (data.data && data.data.interface) || iface;
-      hideModalStatus();
-      hideModal();
-      notify()?.success(appliedIface, {
-        source: 'AmneziaWG',
-        title: 'Импортировано',
-        toastOnly: true
-      });
-    } else {
-      hideModalStatus();
-      showModalError(data.error || 'Ошибка импорта');
-    }
-  } catch (err) {
-    hideModalStatus();
-    showModalError('Ошибка сети: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Импортировать';
-  }
-});
-
-fileInput.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    configText.value = ev.target.result.trim();
-    savedSelect.value = '';
-    clearModalError();
-    hideModalStatus();
-  };
-  reader.readAsText(file);
-  fileInput.value = '';
-});
-
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropZone.classList.add('drag-over');
-});
-
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('drag-over');
-});
-
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    configText.value = ev.target.result.trim();
-    savedSelect.value = '';
-    clearModalError();
-    hideModalStatus();
-  };
-  reader.readAsText(file);
-});
-
-if ('serviceWorker' in navigator) {
-  const swBust = window.__ROUTERICH_CACHE_BUST__ || '1';
-  navigator.serviceWorker.register('sw.js?_=' + encodeURIComponent(swBust)).catch(() => {});
-}
-
-if (window.matchMedia('(display-mode: standalone)').matches) {
-  document.documentElement.classList.add('standalone');
+'use strict';
+
+const overlay = document.getElementById('modal-overlay');
+const configText = document.getElementById('config-text');
+const modalError = document.getElementById('modal-error');
+const savedPicker = document.getElementById('saved-picker');
+const savedSelect = document.getElementById('saved-select');
+const dropZone = document.getElementById('drop-zone');
+const notify = () => window.RouteRichNotify;
+const fileInput = document.getElementById('file-input');
+const awgIfacePicker = document.getElementById('awg-iface-picker');
+const awgIfaceSelect = document.getElementById('awg-iface-select');
+
+let savedVariants = [];
+let awgInterfaces = [];
+
+function showStatus(message, type, opts) {
+  const n = notify();
+  if (!n || !message) return;
+  opts = opts || {};
+  const t = type || 'info';
+  const progress = !!opts.progress;
+  n.show({
+    message: message,
+    type: t,
+    source: opts.source || 'Панель',
+    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'Панель')),
+    group: opts.group || 'panel-status',
+    stack: false,
+    toastOnly: true,
+    progress: progress,
+    persistent: progress,
+    duration: progress ? 0 : undefined
+  });
+}
+
+function hideStatus() {
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('panel-status');
+  else n?.dismissByGroup?.('panel-status');
+}
+
+function showModalStatus(message, type, opts) {
+  const n = notify();
+  if (!n || !message) return;
+  opts = opts || {};
+  const t = type || 'info';
+  const progress = !!opts.progress;
+  n.show({
+    message: message,
+    type: t,
+    source: 'AmneziaWG',
+    title: opts.title || (progress ? 'Подождите' : (t === 'success' ? 'Готово' : 'AmneziaWG')),
+    group: 'awg-status',
+    stack: false,
+    toastOnly: true,
+    progress: progress,
+    persistent: progress,
+    duration: progress ? 0 : undefined
+  });
+}
+
+function hideModalStatus() {
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-status');
+  else n?.dismissByGroup?.('awg-status');
+}
+
+function clearConfigText() {
+  configText.value = '';
+}
+
+function populateAwgIfaceSelect(interfaces, selectedName) {
+  awgInterfaces = interfaces || [];
+  awgIfaceSelect.innerHTML = '';
+
+  if (!awgInterfaces.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '— интерфейсы не найдены —';
+    awgIfaceSelect.appendChild(opt);
+    awgIfacePicker.hidden = true;
+    return;
+  }
+
+  awgInterfaces.forEach((item) => {
+    const opt = document.createElement('option');
+    opt.value = item.name;
+    opt.textContent = item.name + (item.up ? ' (поднят)' : ' (выключен)');
+    awgIfaceSelect.appendChild(opt);
+  });
+
+  const preferred = selectedName || awgInterfaces[0].name;
+  const found = awgInterfaces.some((item) => item.name === preferred);
+  awgIfaceSelect.value = found ? preferred : awgInterfaces[0].name;
+  awgIfacePicker.hidden = false;
+}
+
+async function loadAwgInterfaces() {
+  awgIfaceSelect.innerHTML = '<option value="">— загрузка... —</option>';
+  awgIfacePicker.hidden = false;
+
+  try {
+    const data = await apiGet('import-awg?action=list');
+    if (data.ok && data.interfaces && data.interfaces.length) {
+      populateAwgIfaceSelect(data.interfaces, data.default);
+      clearModalError();
+      return;
+    }
+    populateAwgIfaceSelect([]);
+    showModalError(data.error || 'На роутере нет интерфейсов AmneziaWG. Создайте их в LuCI.');
+  } catch (err) {
+    populateAwgIfaceSelect([]);
+    showModalError('Не удалось загрузить список интерфейсов: ' + err.message);
+  }
+}
+
+function showModal() {
+  clearConfigText();
+  clearModalError();
+  hideModalStatus();
+  overlay.hidden = false;
+  document.body.classList.add('modal-open');
+  loadSavedVariants();
+  loadAwgInterfaces();
+}
+
+function hideModal() {
+  overlay.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function clearModalError() {
+  if (modalError) {
+    modalError.hidden = true;
+    modalError.textContent = '';
+  }
+  const n = notify();
+  if (n?.dismissAllByGroup) n.dismissAllByGroup('awg-error');
+  else if (n?.dismissByGroup) n.dismissByGroup('awg-error');
+}
+
+function showModalError(msg) {
+  if (modalError) {
+    modalError.hidden = true;
+    modalError.textContent = '';
+  }
+  if (!msg) {
+    clearModalError();
+    return;
+  }
+  const n = notify();
+  if (!n) return;
+  n.show({
+    message: msg,
+    type: 'error',
+    source: 'AmneziaWG',
+    title: 'Ошибка',
+    group: 'awg-error'
+  });
+}
+
+function isEmptyConfig(text) {
+  return !text.trim();
+}
+
+function parseServerJson(text, httpOk) {
+  const raw = String(text || '').trim();
+  const from = raw.indexOf('{');
+  const to = raw.lastIndexOf('}');
+  if (from === -1 || to <= from) {
+    return { ok: false, error: 'Некорректный ответ сервера' };
+  }
+  try {
+    const data = JSON.parse(raw.slice(from, to + 1));
+    if (!httpOk && data && !data.error) {
+      data.error = 'HTTP error';
+      data.ok = false;
+    }
+    return data;
+  } catch (_) {
+    return { ok: false, error: 'Некорректный ответ сервера' };
+  }
+}
+
+async function apiPost(path, body, contentType, query) {
+  let url = '/cgi-bin/' + path;
+  if (query && typeof query === 'object') {
+    const qs = new URLSearchParams(query).toString();
+    if (qs) url += '?' + qs;
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType || 'text/plain; charset=utf-8' },
+    body: body
+  });
+  const text = await res.text();
+  const data = parseServerJson(text, res.ok);
+  if (!res.ok && !data.error) {
+    data.error = 'HTTP ' + res.status;
+  }
+  return data;
+}
+
+async function apiGet(path) {
+  const res = await fetch('/cgi-bin/' + path, { method: 'GET' });
+  const text = await res.text();
+  const data = parseServerJson(text, res.ok);
+  if (!res.ok && !data.error) {
+    data.error = 'HTTP ' + res.status;
+  }
+  return data;
+}
+
+function populateSavedSelect(variants, selectedId) {
+  savedVariants = variants || [];
+  savedSelect.innerHTML = '<option value="">— выберите вариант —</option>';
+
+  if (!savedVariants.length) {
+    savedPicker.hidden = true;
+    return;
+  }
+
+  savedVariants.forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    const endpoint = v.endpoint ? ' (' + v.endpoint + ')' : '';
+    opt.textContent = v.name + endpoint;
+    savedSelect.appendChild(opt);
+  });
+
+  savedPicker.hidden = false;
+
+  if (selectedId) {
+    savedSelect.value = selectedId;
+  }
+}
+
+async function loadSavedVariant(id) {
+  if (!id) {
+    clearConfigText();
+    return;
+  }
+
+  const cached = savedVariants.find((v) => v.id === id);
+  if (cached && cached.config) {
+    configText.value = cached.config.trim();
+    clearModalError();
+    return;
+  }
+
+  try {
+    const data = await apiGet('saved-awg?id=' + encodeURIComponent(id));
+    if (data.ok && data.config) {
+      configText.value = data.config.trim();
+      clearModalError();
+      const item = savedVariants.find((v) => v.id === id);
+      if (item) item.config = data.config;
+    } else {
+      showModalError(data.error || 'Не удалось загрузить конфиг');
+    }
+  } catch (err) {
+    showModalError('Ошибка сети: ' + err.message);
+  }
+}
+
+async function loadSavedVariants() {
+  try {
+    const data = await apiGet('saved-awg');
+    if (data.ok && data.variants && data.variants.length) {
+      populateSavedSelect(data.variants);
+    } else {
+      populateSavedSelect([]);
+    }
+  } catch (_) {
+    populateSavedSelect([]);
+  }
+}
+
+function applyGeneratedVariants(data) {
+  if (!data.variants || !data.variants.length) return;
+
+  populateSavedSelect(data.variants, data.variants[0].id);
+  configText.value = (data.variants[0].config || '').trim();
+  clearModalError();
+
+  const count = data.variants.length;
+  notify()?.show({
+    source: 'AmneziaWG',
+    title: 'Сгенерировано',
+    message: count + ' вариант' + (count === 1 ? '' : count < 5 ? 'а' : 'ов') + ' — выберите и импортируйте',
+    type: 'success',
+    toastOnly: true
+  });
+}
+
+const operaProxyMenuItem = document.getElementById('menu-item-opera-proxy');
+const operaProxyBtn = document.getElementById('btn-opera-proxy');
+
+function setOperaProxyVisible(visible) {
+  if (!operaProxyMenuItem) return;
+  operaProxyMenuItem.hidden = !visible;
+}
+
+async function refreshOperaProxyStatus() {
+  if (!operaProxyMenuItem) return;
+  try {
+    const data = await apiGet('fix-opera-proxy');
+    if (data.ok && data.data) {
+      if (data.data.podkop_detected || data.data.zeroblock_available === false) {
+        setOperaProxyVisible(false);
+        return;
+      }
+      setOperaProxyVisible(!!data.data.needs_fix);
+      if (operaProxyBtn) {
+        operaProxyBtn.title = data.data.needs_fix
+          ? 'Прокси ' + (data.data.http_proxy || '127.0.0.1:18080') + ' не отвечает — требуется исправление'
+          : '';
+      }
+    } else {
+      setOperaProxyVisible(false);
+    }
+  } catch (_) {
+    setOperaProxyVisible(false);
+  }
+}
+
+if (operaProxyBtn) {
+  operaProxyBtn.addEventListener('click', async () => {
+    showStatus('Opera-Proxy…', 'info', { title: 'Проверка', progress: true });
+    operaProxyBtn.disabled = true;
+
+    try {
+      const data = await apiPost('fix-opera-proxy', '');
+      if (data.ok) {
+        const d = data.data || {};
+        let msg = data.message || 'Opera-Proxy настроен.';
+        if (d.opera_proxy_version) msg += ' Версия: ' + d.opera_proxy_version + '.';
+        if (d.http_proxy) msg += ' Прокси: ' + d.http_proxy + '.';
+        if (d.custom_fix_applied === false) msg += ' Кастомный init не потребовался.';
+        hideStatus();
+        notify()?.success(msg, { source: 'Opera-Proxy', title: 'Прокси настроен' });
+        setOperaProxyVisible(false);
+      } else {
+        hideStatus();
+        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Opera-Proxy' });
+      }
+    } catch (err) {
+      hideStatus();
+      notify()?.error('Ошибка сети: ' + err.message, { source: 'Opera-Proxy' });
+    } finally {
+      operaProxyBtn.disabled = false;
+    }
+  });
+}
+
+refreshOperaProxyStatus();
+
+const panelUpdateBtn = document.getElementById('btn-update');
+let panelUpdateInfo = null;
+
+function getEmbeddedPanelVersion() {
+  const meta = document.querySelector('meta[name="routerich-version"]');
+  return meta && meta.content ? meta.content.trim() : '';
+}
+
+function versionGt(a, b) {
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return true;
+    if ((pa[i] || 0) < (pb[i] || 0)) return false;
+  }
+  return false;
+}
+
+function versionMax(a, b) {
+  if (!a) return b || '';
+  if (!b) return a || '';
+  return versionGt(a, b) ? a : b;
+}
+
+function setPanelUpdateVisible(visible, info) {
+  if (!panelUpdateBtn) return;
+  panelUpdateInfo = info || null;
+  panelUpdateBtn.hidden = !visible;
+  if (visible && info && info.latest) {
+    panelUpdateBtn.title = 'Доступна версия ' + info.latest + ' (сейчас ' + (info.current || '?') + ')';
+  } else {
+    panelUpdateBtn.title = '';
+  }
+}
+
+async function clearPanelCacheAndReload() {
+  const stamp = String(Date.now());
+  try {
+    sessionStorage.setItem('routerich-hard-reload', stamp);
+  } catch (_) {}
+
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((reg) => reg.unregister()));
+  }
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  }
+
+  const url = new URL(location.href);
+  url.searchParams.set('_', stamp);
+  url.hash = '';
+  location.replace(url.toString());
+}
+
+async function refreshPanelUpdateStatus() {
+  if (!panelUpdateBtn) return;
+  try {
+    const res = await fetch('/cgi-bin/panel-update?_=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+    });
+    const data = await res.json().catch(() => ({ ok: false }));
+    if (data.ok && data.data) {
+      const embedded = getEmbeddedPanelVersion();
+      const serverCurrent = data.data.current || '';
+      const latest = data.data.latest || '';
+      const effectiveCurrent = versionMax(embedded, serverCurrent);
+      const needUpdate = !!(latest && versionGt(latest, effectiveCurrent));
+
+      if (needUpdate) {
+        setPanelUpdateVisible(true, {
+          current: effectiveCurrent || serverCurrent || '?',
+          latest: latest,
+          update_available: true,
+          remote_ok: data.data.remote_ok !== false
+        });
+        return;
+      }
+      if (data.data.remote_ok === false && panelUpdateBtn) {
+        panelUpdateBtn.title = 'Не удалось проверить обновления на GitHub (сеть или доступ к github.com)';
+      }
+    }
+    setPanelUpdateVisible(false);
+  } catch (_) {
+    setPanelUpdateVisible(false);
+  }
+}
+
+if (panelUpdateBtn) {
+  panelUpdateBtn.addEventListener('click', async () => {
+    const latest = panelUpdateInfo && panelUpdateInfo.latest;
+    const current = panelUpdateInfo && panelUpdateInfo.current;
+    const versionHint = latest ? ' до версии ' + latest : '';
+    const currentHint = current ? ' (сейчас ' + current + ')' : '';
+
+    if (!confirm('Обновить панель' + versionHint + '?' + currentHint + '\n\nСтраница перезагрузится автоматически после обновления.')) {
+      return;
+    }
+
+    showStatus('GitHub (до 2 мин)…', 'info', { title: 'Обновление', progress: true });
+    panelUpdateBtn.disabled = true;
+
+    try {
+      const data = await apiPost('panel-update', '');
+      let ok = !!(data && data.ok);
+      let message = (data && data.message) || 'Панель обновлена.';
+      if (!ok) {
+        const again = await fetch('/cgi-bin/panel-update?_=' + Date.now(), {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+        }).then((r) => r.text()).then((t) => parseServerJson(t, true)).catch(() => null);
+        const nowVer = again && again.data && again.data.current;
+        if (nowVer && latest && !versionGt(latest, nowVer)) {
+          ok = true;
+          message = 'Панель обновлена до версии ' + nowVer + '.';
+        }
+      }
+      if (ok) {
+        hideStatus();
+        notify()?.success(message + ' Перезагрузка…', { source: 'Обновление' });
+        await clearPanelCacheAndReload();
+      } else {
+        hideStatus();
+        notify()?.error('Ошибка: ' + ((data && data.error) || 'неизвестная'), { source: 'Обновление' });
+        panelUpdateBtn.disabled = false;
+      }
+    } catch (err) {
+      hideStatus();
+      notify()?.error('Ошибка сети: ' + err.message, { source: 'Обновление' });
+      panelUpdateBtn.disabled = false;
+    }
+  });
+}
+
+refreshPanelUpdateStatus();
+
+document.getElementById('btn-awg').addEventListener('click', showModal);
+document.getElementById('btn-cancel').addEventListener('click', hideModal);
+
+overlay.addEventListener('click', (e) => {
+  if (e.target === overlay) hideModal();
+});
+
+savedSelect.addEventListener('change', () => {
+  loadSavedVariant(savedSelect.value);
+});
+
+document.getElementById('btn-reboot').addEventListener('click', async () => {
+  if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
+  showStatus('Команда reboot…', 'info', { title: 'Перезагрузка', progress: true });
+  try {
+    const data = await apiPost('reboot', '');
+    if (data.ok) {
+      hideStatus();
+      notify()?.success('Роутер перезагружается. Подождите 1–2 минуты.', { source: 'Перезагрузка', title: 'Команда отправлена' });
+    } else {
+      hideStatus();
+      notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Перезагрузка' });
+    }
+  } catch (err) {
+    hideStatus();
+    notify()?.success('Роутер перезагружается (соединение прервано).', { source: 'Перезагрузка', title: 'Команда отправлена' });
+  }
+});
+
+document.getElementById('btn-generate').addEventListener('click', async () => {
+  clearModalError();
+  clearConfigText();
+  savedSelect.value = '';
+  const btn = document.getElementById('btn-generate');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Генерация...';
+  showModalStatus('3 варианта AWG…', 'info', { title: 'Генерация', progress: true });
+  try {
+    const data = await apiGet('generate-awg');
+    if (data.ok && data.variants && data.variants.length) {
+      hideModalStatus();
+      applyGeneratedVariants(data);
+    } else {
+      hideModalStatus();
+      showModalError(data.error || 'Не удалось сгенерировать конфиг');
+    }
+  } catch (err) {
+    hideModalStatus();
+    showModalError('Ошибка сети: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+});
+
+document.getElementById('btn-import').addEventListener('click', async () => {
+  const text = configText.value.trim();
+  const iface = awgIfaceSelect.value;
+  if (!iface) {
+    showModalError('Выберите интерфейс AmneziaWG');
+    return;
+  }
+  if (isEmptyConfig(text)) {
+    showModalError('Вставьте, выберите или сгенерируйте конфигурацию .conf');
+    return;
+  }
+  clearModalError();
+  const btn = document.getElementById('btn-import');
+  btn.disabled = true;
+  btn.textContent = 'Импорт...';
+  showModalStatus(iface, 'info', { title: 'Импорт', progress: true });
+  try {
+    const data = await apiPost('import-awg', text, undefined, { iface: iface });
+    if (data.ok) {
+      const appliedIface = (data.data && data.data.interface) || iface;
+      hideModalStatus();
+      hideModal();
+      notify()?.success(appliedIface, {
+        source: 'AmneziaWG',
+        title: 'Импортировано',
+        toastOnly: true
+      });
+    } else {
+      hideModalStatus();
+      showModalError(data.error || 'Ошибка импорта');
+    }
+  } catch (err) {
+    hideModalStatus();
+    showModalError('Ошибка сети: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Импортировать';
+  }
+});
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    configText.value = ev.target.result.trim();
+    savedSelect.value = '';
+    clearModalError();
+    hideModalStatus();
+  };
+  reader.readAsText(file);
+  fileInput.value = '';
+});
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('drag-over');
+});
+
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    configText.value = ev.target.result.trim();
+    savedSelect.value = '';
+    clearModalError();
+    hideModalStatus();
+  };
+  reader.readAsText(file);
+});
+
+if ('serviceWorker' in navigator) {
+  const swBust = window.__ROUTERICH_CACHE_BUST__ || '1';
+  navigator.serviceWorker.register('sw.js?_=' + encodeURIComponent(swBust)).catch(() => {});
+}
+
+if (window.matchMedia('(display-mode: standalone)').matches) {
+  document.documentElement.classList.add('standalone');
 }

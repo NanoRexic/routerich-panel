@@ -98,7 +98,6 @@ if ! ensure_nohup; then
 	log "Warning: nohup not installed — Zapret2 search will use a fallback starter"
 fi
 
-# LAN IPv4 only (+ localhost for installer/health checks). Never 0.0.0.0 / ::
 collect_lan_listen_ips() {
 	printf '%s\n' '127.0.0.1'
 	uci -q get network.lan.ipaddr 2>/dev/null | while read -r item; do
@@ -112,7 +111,6 @@ collect_lan_listen_ips() {
 	fi
 }
 
-# Drop WAN → panel even if zone wan input=ACCEPT (fw4 traffic rule)
 restrict_panel_from_wan() {
 	port="$1"
 	command -v uci >/dev/null 2>&1 || return 0
@@ -138,6 +136,13 @@ restrict_panel_from_wan() {
 	fi
 	log "WAN drop rule for TCP $port"
 }
+
+if [ -n "$REQUEST_METHOD" ] || [ "${SKIP_UHTTPD_RESTART:-0}" = "1" ]; then
+	log "Skip uhttpd recreate/restart (CGI self-update)"
+	printf 'PANEL_PORT=%s\n' "$CHOSEN_PORT"
+	printf 'PANEL_URL=http://%s:%s/\n' "$(uci -q get network.lan.ipaddr 2>/dev/null | cut -d/ -f1 || hostname -I 2>/dev/null | awk '{print $1}')" "$CHOSEN_PORT"
+	exit 0
+fi
 
 uci -q delete uhttpd.panel 2>/dev/null || true
 uci set uhttpd.panel=uhttpd

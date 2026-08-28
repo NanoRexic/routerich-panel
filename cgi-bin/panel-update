@@ -129,7 +129,6 @@ sync_version_files() {
 	mkdir -p /etc/routerich-panel
 	printf '%s\n' "$version" > "$VERSION_LOCAL"
 	printf '%s\n' "$version" > "$PANEL_HOME/VERSION"
-	# Держим meta в index.html в синхроне (иначе iOS/Safari и кэш видят старую версию)
 	if [ -f "$PANEL_HOME/index.html" ] && grep -q 'name="routerich-version"' "$PANEL_HOME/index.html" 2>/dev/null; then
 		sed -i "s/name=\"routerich-version\" content=\"[^\"]*\"/name=\"routerich-version\" content=\"$version\"/" \
 			"$PANEL_HOME/index.html" 2>/dev/null || true
@@ -229,30 +228,17 @@ run_update() {
 	mkdir -p /etc/routerich-panel
 	deploy_from_manifest || json_err "Не удалось скачать файлы панели с GitHub"
 
-	# Берём VERSION из только что скачанных файлов, не второй запрос к GitHub CDN
-	# (кэш raw часто отдаёт старый VERSION и затирает свежий деплой).
 	latest=$(tr -d '\r\n' < "$PANEL_HOME/VERSION" 2>/dev/null)
 	[ -n "$latest" ] || latest=$(tr -d '\r\n' < "$VERSION_LOCAL" 2>/dev/null)
 	[ -n "$latest" ] || latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
 	[ -n "$latest" ] || json_err "Пустая версия после обновления"
 	sync_version_files "$latest"
-
-	# Повторно вешаем панель только на LAN и DROP с WAN
-	port=$(uci -q show uhttpd.panel 2>/dev/null | sed -n "s/.*listen_http='[^']*:\\([0-9][0-9]*\\)'.*/\\1/p" | head -1)
-	[ -n "$port" ] || port=2020
-	if fetch "$REPO_RAW/setup-panel.sh" "$TMP_DIR/setup-panel.sh"; then
-		sed 's/\r$//' "$TMP_DIR/setup-panel.sh" > "$TMP_DIR/setup-panel.norm" 2>/dev/null \
-			&& mv "$TMP_DIR/setup-panel.norm" "$TMP_DIR/setup-panel.sh"
-		sh "$TMP_DIR/setup-panel.sh" "$port" >/dev/null 2>&1 || true
-	fi
-
 	json_ok_update "$latest"
 }
 
 check_status() {
 	current=$(get_local_version)
 	sync_version_files "$current"
-	# Перечитать после sync (meta/файлы могли выровняться)
 	current=$(get_local_version)
 	if latest=$(get_remote_version); then
 		if ver_gt "$latest" "$current"; then

@@ -181,7 +181,6 @@ api_apply() {
 				1|2|3|4)
 					xtreme=$(printf '%s' "$POST_JSON" | jq -r '.xtreme // false')
 					[ "$xtreme" = "true" ] && xt=1 || xt=0
-					# keep current xtreme if already on and not specified
 					cur=$(z2_detect_games)
 					cur_x=$(printf '%s' "$cur" | awk '{print $2}')
 					explicit=$(printf '%s' "$POST_JSON" | jq 'has("xtreme")')

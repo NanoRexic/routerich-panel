@@ -5,7 +5,6 @@
 
 set -e
 
-# github.com/raw works when /etc/hosts overrides raw.githubusercontent.com (Zapret)
 REPO_RAW="${REPO_RAW:-https://github.com/NanoRexic/routerich-panel/raw/refs/heads/main}"
 PANEL_PORT="${PANEL_PORT:-2020}"
 UA='Mozilla/5.0 (compatible; RouteRich-Installer/1.0)'
@@ -21,7 +20,6 @@ trap cleanup EXIT INT TERM
 fetch() {
 	url="$1"
 	out="$2"
-	# Bypass stale CDN cache on some networks (e.g. via /etc/hosts mirrors)
 	case "$url" in
 		*\?*) bust_url="${url}&t=$(date +%s 2>/dev/null || echo 1)" ;;
 		*) bust_url="${url}?t=$(date +%s 2>/dev/null || echo 1)" ;;
@@ -130,7 +128,6 @@ chmod 755 "$SETUP"
 
 log "Configuring uhttpd..."
 PREFERRED_PORT="$PANEL_PORT"
-# Only eval PANEL_* lines — setup-panel.sh logs go to stderr
 eval "$(sh "$SETUP" "$PANEL_PORT" | grep '^PANEL_')"
 
 VERSION=$(tr -d '\r\n' < /www/routerich-panel/VERSION 2>/dev/null)

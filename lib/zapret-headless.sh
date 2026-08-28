@@ -13,17 +13,13 @@ CONF="/etc/config/zapret"; CUSTOM_DIR="/opt/zapret/init.d/openwrt/custom.d/"; HO
 fileGP="/opt/zapret/ipset/zapret-hosts-google.txt"
 FAKE_DIR="/opt/zapret/files/fake"
 FAKE_FLOW_URL="https://github.com/Flowseal/zapret-discord-youtube/raw/refs/heads/main/bin"
-# Доп. fake из Flowseal (как в StressOzz Zapret-Manager ADD_FAKE_FLOW)
 FAKE_FLOW_FILES="stun2.bin quic_initial_tencent_com.bin quic_initial_steamcommunity_com.bin quic_initial_dbankcloud_ru.bin quic_initial_4pda.to.bin quic_initial_5ka_ru.bin tls_clienthello_5ka_ru.bin quic_initial_rutube_ru.bin"
-# StressOzz: ListStrYou → files/TestStrYoutube → files/StrYoutube
-# raw.githubusercontent.com с роутера часто 429; jsDelivr Fastly и GitHub API живые
 STR_URL="https://fastly.jsdelivr.net/gh/StressOzz/Zapret-Manager@main/files/StrYoutube"
 STR_URL_FALLBACKS="https://cdn.jsdelivr.net/gh/StressOzz/Zapret-Manager@main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/StrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/files/TestStrYoutube https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/main/ListStrYou"
 YT_LIST_CACHE="/etc/routerich-panel/StrYoutube.cache"
 YT_LIST_API="https://api.github.com/repos/StressOzz/Zapret-Manager/contents/files/StrYoutube"
 GEO_HOSTS="https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts"
 TMP_SF="/tmp/zapret_temp"; HOSTS_FILE="/etc/hosts"; TMP_LIST="$TMP_SF/zapret_yt_list.txt"; tmpDIR="/tmp/PodkopAWG"
-# Настоящий список Yv, не HTML/429
 _youtube_list_valid() {
 	[ -s "$1" ] || return 1
 	grep -qE '^(#)?Yv[0-9]+' "$1" 2>/dev/null || return 1
@@ -61,7 +57,6 @@ _youtube_list_from_github_api() {
 	jq -r '.content // empty' "$json" 2>/dev/null | tr -d '\n' | base64 -d > "$dest" 2>/dev/null || return 1
 	_youtube_list_valid "$dest"
 }
-# Загрузка списка Yv: GitHub API / jsDelivr, затем raw, затем кэш
 fetch_youtube_list() {
 	local dest="${1:-$TMP_LIST}" url
 	mkdir -p "$(dirname "$dest")" 2>/dev/null || mkdir -p "$TMP_SF"
@@ -143,7 +138,6 @@ ensure_github_hosts() {
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	return 0
 }
-# Скачать недостающие fake-файлы Flowseal (Discord/игры/стратегии). Идемпотентно.
 ADD_FAKE_FLOW() {
 	local f MSG=0 dest url
 	[ -d /opt/zapret ] || return 0
@@ -167,25 +161,21 @@ ADD_FAKE_FLOW() {
 		echo -e "\n${RED}Не удалось загрузить файл ${NC}$f\n"
 	done
 }
-# Google Play / YouTube-домены в zapret-hosts-google.txt (как ADD_GP_DOMAINS в Zapret-Manager)
 ADD_GP_DOMAINS() {
 	[ -d /opt/zapret/ipset ] || return 0
 	touch "$fileGP" 2>/dev/null || true
-	# grep exit 1, если все домены уже есть — не роняем set -e
 	printf '%s\n' "gvt1.com" "googleplay.com" "play.google.com" "beacons.gvt2.com" "play.googleapis.com" \
 		"play-fe.googleapis.com" "lh3.googleusercontent.com" "android.clients.google.com" \
 		"connectivitycheck.gstatic.com" "play-lh.googleusercontent.com" "play-games.googleusercontent.com" \
 		"prod-lt-playstoregatewayadapter-pa.googleapis.com" "youtubei.youtube.com" \
 		| grep -Fxv -f "$fileGP" 2>/dev/null >> "$fileGP" || true
 }
-# Базовая YT-стратегия Yv08 в начало NFQWS_OPT, если ещё нет Yv
 ADD_Yv() {
 	if ! grep -q "^#Yv" "$CONF" 2>/dev/null && ! grep -q "^#general" "$CONF" 2>/dev/null; then
 		sed -i "/^[[:space:]]*option NFQWS_OPT '/a\\#Yv08\\n--filter-tcp=443\\n--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt\\n--dpi-desync=hostfakesplit\\n--dpi-desync-hostfakesplit-mod=host=google.com\\n--dpi-desync-fooling=ts\\n--new" "$CONF"
 	fi
 }
 ZAPRET_RESTART () {
-	# Смена NFQWS_OPT (стратегия и т.п.) сносит #Moonlight — восстанавливаем, если пользователь включил модификатор
 	[ -f "$MOONLIGHT_FLAG" ] && moonlight_insert_stub
 	chmod +x /opt/zapret/sync_config.sh; /opt/zapret/sync_config.sh; /etc/init.d/zapret restart >/dev/null 2>&1; sleep 1
 }
@@ -647,13 +637,8 @@ echo -ne "${CYAN}6) $FIN_TXT\n${CYAN}7) ${GREEN}Выбрать и установ
 if wget -q -U "Mozilla/5.0" -O "$CUSTOM_DIR/50-script.sh" "$URL"; then [ "$NO_PAUSE" != "1" ] && echo; echo -e "${MAGENTA}Устанавливаем скрипт${NC}\n${GREEN}Скрипт ${NC}$SELECTED${GREEN} успешно установлен!${NC}\n"; else echo -e "\n${RED}Ошибка при скачивании скрипта!${NC}\n"; PAUSE; continue; fi
 sed -i "/DISABLE_CUSTOM/s/'1'/'0'/" $CONF; ZAPRET_RESTART; [ "$NO_PAUSE" != "1" ] && PAUSE; [ "$NO_PAUSE" = "1" ] && break; done }
 # ==========================================
-# Moonlight / Sunshine (Apollo) — passthrough-заглушки в начале NFQWS_OPT
-# nfqws обрабатывает профили каскадно: первый match останавливает цепочку.
-# Заглушки без --dpi-desync пропускают пакеты без изменений (до Gv/Discord и т.д.).
-# Флаг MOONLIGHT_FLAG = желание пользователя; #Moonlight в CONF = фактическое состояние.
 # ==========================================
 moonlight_bypass_active() {
-	# Только реальный блок в конфиге — для UI и API (флаг может остаться после смены стратегии)
 	grep -q '^#Moonlight$' "$CONF" 2>/dev/null
 }
 
@@ -662,7 +647,6 @@ moonlight_wanted() {
 }
 
 strategy_moonlight_stub() {
-	# Завершающий --new отделяет заглушку от следующего профиля (#v7 / #Yv08)
 	printf '%s\n' "#Moonlight" "--new" "--filter-udp=${MOONLIGHT_UDP_PORTS}" "--new" "--filter-tcp=${MOONLIGHT_TCP_PORTS}" "--new"
 }
 
@@ -707,7 +691,6 @@ moonlight_remove_split() {
 
 toggle_moonlight_bypass() {
 	[ ! -f /etc/init.d/zapret ] && { echo -e "\n${RED}Zapret не установлен!${NC}\n"; PAUSE; return 1; }
-	# Выключаем, если флаг или блок в конфиге (рассинхрон после смены стратегии)
 	if moonlight_wanted || moonlight_bypass_active; then
 		echo -e "\n${MAGENTA}Выключаем исключение Moonlight/Sunshine${NC}"
 		moonlight_remove_split
@@ -811,7 +794,6 @@ nft list tables 2>/dev/null | awk '{print $2}' | grep -E '(zapret|ZAPRET)' | whi
 # ==========================================
 auto_stryou() { clear; echo -e "${MAGENTA}Тестируем стратегии для YouTube${NC}"
 awk '/^[[:space:]]*option NFQWS_OPT '\''/{flag=1} flag{print}' "$CONF" > "$OLD_STR"; fetch_youtube_list "$TMP_LIST" || { echo -e "\n${RED}Не удалось скачать список${NC}\n"; PAUSE </dev/tty; return 1; }
-# StrYoutube: #Yv01; старый ListStrYou: Yv01
 TOTAL=$(grep -cE '^(#)?Yv[0-9]+' "$TMP_LIST"); echo -e "\n${CYAN}Найдено стратегий: ${NC}$TOTAL"; CURRENT_NAME=""; CURRENT_BODY=""; COUNT=0
 while IFS= read -r LINE || [ -n "$LINE" ]; do if echo "$LINE" | grep -qE '^(#)?Yv[0-9]+'; then if [ -n "$CURRENT_NAME" ]; then COUNT=$((COUNT + 1))
 echo -e "\n${CYAN}Тестируем стратегию: ${NC}${CURRENT_NAME#\#} ($COUNT/$TOTAL)"; apply_strategy "$CURRENT_NAME" "$CURRENT_BODY"; echo -e "${CYAN}Тестируем домены:${NC}"
@@ -845,7 +827,6 @@ if [ -f "$CONF" ] && { grep -q -- "--hostlist=/opt/zapret/ipset/zapret-hosts-use
 # ==========================================
 # Стратегии
 # ==========================================
-# Базовые v1–v10 — как StressOzz/Zapret-Manager (main). Yv08 добавляет ADD_Yv в install_strategy.
 strategy_v1() { printf '%s\n' "#v1" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=split2" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"; }
 strategy_v2() { printf '%s\n' "#v2" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=fake,multisplit" "--dpi-desync-split-seqovl=681" "--dpi-desync-split-pos=1" "--dpi-desync-fooling=ts" "--dpi-desync-repeats=8" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin" "--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"; }
 strategy_v3() { printf '%s\n' "#v3" "--filter-tcp=443" "--hostlist-exclude=/opt/zapret/ipset/zapret-hosts-user-exclude.txt" "--dpi-desync=hostfakesplit" "--dpi-desync-hostfakesplit-mod=host=ozon.ru" "--dpi-desync-repeats=4" "--dpi-desync-fooling=ts,md5sig" "--dpi-desync-badseq-increment=0"; }
@@ -899,7 +880,6 @@ printf "%s\n" "--new" "--filter-udp=19294-19344,50000-50100" "--filter-l7=discor
 "--dpi-desync-repeats=6" "#Dv1" "--new" "--filter-tcp=2053,2083,2087,2096,8443" "--hostlist-domains=discord.media" \
 "--dpi-desync=multisplit" "--dpi-desync-split-seqovl=652" "--dpi-desync-split-pos=2" "--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin" "'" >> "$CONF"; fi; }
 install_strategy() {
-	# Порядок как в Zapret-Manager: fake → NFQWS_OPT(vN) → GP-домены → exclude → Yv08 → Discord → restart
 	local version="$1"
 	local NO_PAUSE="${2:-0}"
 	[ "$NO_PAUSE" != "1" ] && echo
@@ -943,7 +923,6 @@ read CHOICE </dev/tty; if ! echo "$CHOICE" | grep -qE '^[0-9]+$' || [ "$CHOICE" 
 echo -e "\n${CYAN}Применяем стратегию: ${NC}$DISPLAY_NAME"; SAVED_STR="$TMP_SF/selected_str"; > "$SAVED_STR"; FLAG=0; while IFS= read -r LINE; do [ "$LINE" = "$SELECTED_NAME" ] && FLAG=1 && continue; case "$LINE" in \#Yv[0-9]*|Yv[0-9]*) FLAG=0;; esac
 [ "$FLAG" -eq 1 ] && printf "%b\n" "$LINE" >> "$SAVED_STR"; done < "$TMP_LIST"; awk '/^[[:space:]]*option NFQWS_OPT '\''/{flag=1} flag{print}' "$CONF" > "$OLD_STR"; sed -i "/^[[:space:]]*option NFQWS_OPT '/,\$d" "$CONF"; sed -i "/^[[:space:]]*#Yv[0-9]\+/d" "$OLD_STR"
 awk '{if(skip){if($0=="--new"||$0~/\047/){skip=0;next}if($0~/^[[:space:]]*$/)next;next}if($0=="--filter-tcp=443"){getline n;if(n=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt"){skip=1;next}else{print $0;print n;next}}if($0=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt")has_google=1;if($0~/^[[:space:]]*#Yv/)next;print}' "$OLD_STR" > "$NEW_STR"
-# SELECTED_NAME: #Yv01 (новый) или Yv01 (старый) — в конфиг всегда #Yv..
 case "$SELECTED_NAME" in \#*) MARKER="$SELECTED_NAME" ;; *) MARKER="#$SELECTED_NAME" ;; esac
 awk -v marker="$MARKER" 'BEGIN{inserted=0;has_google=0} $0=="--hostlist=/opt/zapret/ipset/zapret-hosts-google.txt"{has_google=1} $0=="--new"&&!inserted{while((getline l<"'"$SAVED_STR"'")>0) if(l!~/^[[:space:]]*$/) print l; print "--new"; inserted=1; next} $0~/^[[:space:]]*option NFQWS_OPT \047$/&&!has_google&&!inserted{print; print marker; while((getline l<"'"$SAVED_STR"'")>0) if(l!~/^[[:space:]]*$/) print l; print "--new"; inserted=1; next} {print}' "$NEW_STR" > "$FINAL_STR"
 cat "$FINAL_STR" >> "$CONF"; awk '{if($0=="--new"){if(prev!="--new")print}else print;prev=$0}' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"; grep -q "^[[:space:]]*' *\$" "$CONF" || echo "'" >> "$CONF"; ZAPRET_RESTART; echo -e "${GREEN}Стратегия применена!${NC}\n"; 
@@ -1028,7 +1007,6 @@ echo -e "\n${MAGENTA}Включаем IPv6 в Zapret${NC}"; ZAPRET_RESTART; echo
 # Hosts menu
 # ==========================================
 hosts_reset() { echo -e "\n${MAGENTA}Восстанавливаем hosts${NC}"; : > /etc/hosts; echo -e "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters" > /etc/hosts; /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}восстановлен!${NC}\n"; PAUSE; }
-# Удалить строки hosts с этими именами или точным текстом маркера/строки блока
 _hosts_strip_block() {
 	local tmp="$HOSTS_FILE.strip.$$"
 	printf '%b\n' "$1" | awk '
@@ -1095,7 +1073,6 @@ echo -ne "${CYAN}Enter) ${GREEN}Выход в главное меню${NC}\n\n${
 wget -qO /etc/hosts https://raw.githubusercontent.com/StressOzz/Zapret-Manager/refs/heads/files/hosts_malw.link.txt >/dev/null 2>&1 || { echo -e "\n${RED}Не удалось скачать файл hosts${NC}\n"; PAUSE; }
 /etc/init.d/dnsmasq restart >/dev/null 2>&1; echo -e "hosts ${GREEN}заменён на ${NC}Malw.link hosts${GREEN}!${NC}\n"; PAUSE;; 15) hosts_reset;; *) break;; esac; done; }
 status_block() {
-	# Тег включён, если есть его маркер (#Nalog, #githubusercontent.com, …)
 	local marker line
 	marker=$(printf '%b\n' "$1" | awk '/^[[:space:]]*#/ { print; exit }')
 	if [ -n "$marker" ]; then

@@ -788,8 +788,10 @@ async function runTest(mode, options) {
   }
 }
 
-function zapret2ActionWarning(target) {
+function zapret2ActionWarning(target, value) {
   if (target === 'zapret2_disable' || target === 'stop') return '';
+  if (target === 'hosts') return '';
+  if (target === 'toggle' && value === 'finland') return '';
   if (!zapretData || !isZapret2Active(zapretData.zapret2)) return '';
   return 'Zapret2 сейчас активен. Zapret v1 и Zapret2 нельзя держать вместе — Zapret2 будет остановлен.\n\nПродолжить?';
 }
@@ -845,7 +847,7 @@ async function runInstallZapret() {
 
 async function runAction(target, value) {
   if (busy) return;
-  const z2Warn = zapret2ActionWarning(target);
+  const z2Warn = zapret2ActionWarning(target, value);
   if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
   setZapretError('');
@@ -1152,6 +1154,4 @@ function initZapretUi() {
   });
 }
 
-// Скрипты подключаются через document.write в конце body — DOM уже готов.
-// Как app.js: не ждём DOMContentLoaded, иначе обработчики могут не повеситься.
 initZapretUi();

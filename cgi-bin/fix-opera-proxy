@@ -1,6 +1,5 @@
 #!/bin/sh
 
-# Релизная секция Zeroblock для смешанного прокси
 ZB_SECTION="awg10"
 ZB_DEFAULT_MIXED_PORT="2080"
 OPERA_HTTP_PROXY="http://127.0.0.1:18080"
@@ -223,7 +222,6 @@ write_opera_init() {
 
 	cat > /etc/init.d/opera-proxy << EOF
 #!/bin/sh /etc/rc.common
-# routerich-panel: opera-proxy fixed
 
 USE_PROCD=1
 START=40

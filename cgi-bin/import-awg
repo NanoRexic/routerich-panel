@@ -234,7 +234,6 @@ if [ -z "$ENDPOINT" ]; then
 	json_err "Endpoint не указан"
 fi
 
-# Parse endpoint host:port (supports [ipv6]:port)
 case "$ENDPOINT" in
 	\[*\]*:*)
 		ENDPOINT_HOST=$(echo "$ENDPOINT" | sed 's/^\[\([^]]*\)\]:.*/\1/')
@@ -255,13 +254,10 @@ if [ -z "$ENDPOINT_HOST" ] || [ -z "$ENDPOINT_PORT" ]; then
 	json_err "Endpoint некорректен (ожидается host:port)"
 fi
 
-# Backup (храним не более MAX_NETWORK_BACKUPS копий)
 backup_network_config
 
-# Interface: private_key
 uci -q set "network.${IFACE}.private_key=$PRIVATE_KEY"
 
-# Clear and set list options
 for opt in addresses dns; do
 	uci -q delete "network.${IFACE}.${opt}" 2>/dev/null
 	while uci -q delete "network.${IFACE}.${opt}" 2>/dev/null; do :; done
@@ -299,7 +295,6 @@ if [ -n "$MTU" ]; then
 	uci -q set "network.${IFACE}.mtu=$MTU"
 fi
 
-# AWG obfuscation params
 for pair in \
 	"interface_jc:awg_jc" \
 	"interface_jmin:awg_jmin" \
@@ -326,7 +321,6 @@ do
 	fi
 done
 
-# Peer section
 uci -q set "network.${PEER_SECTION}.public_key=$PUBLIC_KEY"
 uci -q set "network.${PEER_SECTION}.endpoint_host=$ENDPOINT_HOST"
 uci -q set "network.${PEER_SECTION}.endpoint_port=$ENDPOINT_PORT"
@@ -345,7 +339,6 @@ else
 	uci -q set "network.${PEER_SECTION}.persistent_keepalive=25"
 fi
 
-# Clear and set allowed_ips
 while uci -q delete "network.${PEER_SECTION}.allowed_ips" 2>/dev/null; do :; done
 ALLOWED=$(get_val "peer_allowedips")
 if [ -n "$ALLOWED" ]; then
@@ -360,7 +353,6 @@ else
 	uci add_list "network.${PEER_SECTION}.allowed_ips=::/0"
 fi
 
-# Preserve route_allowed_ips=0 and description
 uci -q set "network.${PEER_SECTION}.route_allowed_ips=0"
 
 rm -f "$PARSED"

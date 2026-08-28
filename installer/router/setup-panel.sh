@@ -98,7 +98,6 @@ if ! ensure_nohup; then
 	log "Warning: nohup not installed — Zapret2 search will use a fallback starter"
 fi
 
-# LAN IPv4 only (+ localhost for installer/health checks). Never 0.0.0.0 / ::
 collect_lan_listen_ips() {
 	printf '%s\n' '127.0.0.1'
 	uci -q get network.lan.ipaddr 2>/dev/null | while read -r item; do
@@ -112,7 +111,6 @@ collect_lan_listen_ips() {
 	fi
 }
 
-# Drop WAN → panel even if zone wan input=ACCEPT (fw4 traffic rule)
 restrict_panel_from_wan() {
 	port="$1"
 	command -v uci >/dev/null 2>&1 || return 0
