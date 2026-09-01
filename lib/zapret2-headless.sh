@@ -13,6 +13,9 @@ Z2_JOB_LOG="$Z2_TMP/bcw.log"
 Z2_JOB_PID="$Z2_TMP/bcw.pid"
 Z2_CMD_PID="$Z2_TMP/bcw-cmd.pid"
 Z2_WORK="$Z2_TMP/bcw-work"
+Z2_PROGRESS="$Z2_TMP/bcw-progress.txt"
+Z2_LOG_UI="$Z2_TMP/bcw-log-ui.txt"
+Z2_NOTES="$Z2_TMP/bcw-notes.txt"
 Z2_ST_JOB="$Z2_TMP/slottest-job.json"
 Z2_ST_LOG="$Z2_TMP/slottest.log"
 Z2_ST_PID="$Z2_TMP/slottest.pid"
@@ -152,6 +155,16 @@ z2_stop_v2() {
 	fi
 }
 
+z2_pause_v2() {
+	if [ -x "$Z2_INIT" ]; then
+		"$Z2_INIT" stop >/dev/null 2>&1 || true
+	fi
+	if pgrep nfqws2 >/dev/null 2>&1; then
+		killall nfqws2 >/dev/null 2>&1 || true
+		sleep 1
+	fi
+}
+
 z2_start_v2() {
 	z2_stop_v1
 	[ -x "$Z2_INIT" ] || return 1
@@ -197,6 +210,8 @@ z2_uci_init_strategy() {
 	uci -q add_list "zapret2.$name.filter_l3=ipv4"
 	uci -q delete "zapret2.$name.filter_l7" 2>/dev/null || true
 	uci -q add_list "zapret2.$name.filter_l7=tls"
+	uci -q delete "zapret2.$name.hostlist_exclude" 2>/dev/null || true
+	uci -q set "zapret2.$name.hostlist_exclude=list_hosts_user_exclude"
 }
 
 z2_parse_script() {
@@ -419,6 +434,7 @@ z2_apply_circular() {
 	canon=$(jq -r --arg n "$name" '.profiles[$n].canon // empty' "$Z2_STATE")
 	[ -n "$canon" ] || canon=$(z2_get_script "$name")
 	parsed=$(z2_parse_script "$canon")
+	parsed=$(z2_slots_inrange_last "$parsed")
 	disabled=$(jq -c --arg n "$name" '.profiles[$n].disabled // []' "$Z2_STATE")
 	no_cycle=$(jq -r --arg n "$name" '.profiles[$n].no_cycle // true' "$Z2_STATE")
 	keep_n=$(printf '%s' "$parsed" | jq --argjson dis "$disabled" '[.slots[] | select(.id as $id | (($dis | index($id)) == null))] | length')
@@ -451,16 +467,23 @@ z2_apply_circular() {
 		END {
 			if (cur != "") slots[++ns] = cur
 			if (prefix != "") print prefix
+			prev_ir = ""
+			pn = split(prefix, PL, "\n")
+			for (j = 1; j <= pn; j++) if (PL[j] ~ /^--in-range=/) prev_ir = PL[j]
 			for (i = 1; i <= ns; i++) {
 				n = split(slots[i], L, "\n")
 				keep_tls = 0
 				lastj = 0
+				ir = ""
 				for (j = 1; j <= n; j++) {
 					if (L[j] ~ /^--payload=/ && L[j] != "--payload=tls_client_hello") keep_tls = 1
 					if (L[j] ~ /^--lua-desync=/) lastj = j
+					if (L[j] ~ /^--in-range=/ && L[j] != "--in-range=x") ir = L[j]
 				}
+				if (ir != "" && ir != prev_ir) { print ir; prev_ir = ir }
 				for (j = 1; j <= n; j++) {
 					if (L[j] == "") continue
+					if (L[j] ~ /^--in-range=/) continue
 					if (L[j] == "--payload=tls_client_hello" && !keep_tls) continue
 					line = set_strat(L[j], i)
 					if (nocycle && i == ns && j == lastj && line !~ /:final/) line = line ":final"
@@ -530,6 +553,51 @@ z2_set_enabled() {
 	name="$1"
 	on="$2"
 	uci -q set "zapret2.$name.enabled=$on"
+	uci -q commit zapret2
+}
+
+z2_user_strategy_names() {
+	z2_strategy_names | awk '!/^games_/ && NF { print }'
+}
+
+z2_reorder_profiles() {
+	order="$1"
+	z2_mkdirs
+	cur_json=$(z2_user_strategy_names | jq -R . | jq -s .)
+	ok=$(jq -n --argjson order "$order" --argjson cur "$cur_json" '
+		($order | type) == "array"
+		and (($order | length) > 0)
+		and (($order | length) == ($cur | length))
+		and (($order | sort) == ($cur | sort))
+	')
+	[ "$ok" = "true" ] || return 1
+	same=$(jq -n --argjson order "$order" --argjson cur "$cur_json" '$order == $cur')
+	[ "$same" = "true" ] && return 0
+	secs=$(uci show zapret2 2>/dev/null | sed -n 's/^zapret2\.\([^.]*\)=\([A-Za-z0-9_]*\)$/\1/p')
+	[ -n "$secs" ] || return 1
+	printf '%s' "$order" | jq -r '.[]' > "$Z2_TMP/z2-prof-set"
+	out="$Z2_TMP/z2-prof-out"
+	: > "$out"
+	u=0
+	while IFS= read -r sec; do
+		[ -n "$sec" ] || continue
+		if grep -qxF "$sec" "$Z2_TMP/z2-prof-set" 2>/dev/null; then
+			nxt=$(printf '%s' "$order" | jq -r --argjson i "$u" '.[$i] // empty')
+			[ -n "$nxt" ] || return 1
+			echo "$nxt" >> "$out"
+			u=$((u + 1))
+		else
+			echo "$sec" >> "$out"
+		fi
+	done <<EOF
+$secs
+EOF
+	i=0
+	while IFS= read -r sec; do
+		[ -n "$sec" ] || continue
+		uci -q reorder "zapret2.$sec=$i" || return 1
+		i=$((i + 1))
+	done < "$out"
 	uci -q commit zapret2
 }
 
@@ -818,6 +886,14 @@ z2_embed_instances() {
 	' | z2_drop_redundant_tls_payload
 }
 
+z2_slots_inrange_last() {
+	printf '%s' "$1" | jq '
+		def has_ir:
+			([.instances[]? | select(startswith("--in-range=") and . != "--in-range=x")] | length) > 0;
+		.slots = ((.slots | map(select(has_ir | not))) + (.slots | map(select(has_ir))))
+	'
+}
+
 z2_stamp_instances() {
 	id="$1"
 	z2_drop_redundant_tls_payload | awk -v id="$id" '
@@ -986,6 +1062,7 @@ z2_embed_list() {
 	[ "$added" -ge 1 ] || return 2
 	parsed=$(z2_restyle_parsed "$parsed" "$style")
 	parsed=$(printf '%s' "$parsed" | jq --argjson ns "$new_slots" '.slots = $ns + .slots')
+	parsed=$(z2_slots_inrange_last "$parsed")
 	new_canon=$(printf '%s' "$parsed" | jq -r '((.prefix | join("\n")) + "\n" + ([.slots[] | .instances[]] | join("\n")))')
 	hash=$(z2_hash "$new_canon")
 	z2_set_script "$target" "$new_canon"
@@ -1019,6 +1096,8 @@ z2_bcw_settings() {
 		| .bcw.domains = (.bcw.domains // "rutracker.org")
 		| .bcw.timeout = (.bcw.timeout // 600)
 		| .bcw.dns = (.bcw.dns // "auto")
+		| .bcw.take = (.bcw.take // 100)
+		| .bcw.benchmark = (.bcw.benchmark // null)
 		| .bcw
 	' "$Z2_STATE"
 }
@@ -1026,14 +1105,48 @@ z2_bcw_settings() {
 z2_bcw_save_settings() {
 	z2_state_init
 	tmp="$Z2_TMP/z2-state.$$"
-	jq --argjson w "$1" --arg p "$2" --arg d "$3" --argjson t "$4" --arg dns "$5" \
-		'.bcw.workers=$w | .bcw.proto=$p | .bcw.domains=$d | .bcw.timeout=$t | .bcw.dns=$dns' \
+	jq --argjson w "$1" --arg p "$2" --arg d "$3" --argjson t "$4" --arg dns "$5" --argjson take "$6" \
+		'.bcw.workers=$w | .bcw.proto=$p | .bcw.domains=$d | .bcw.timeout=$t | .bcw.dns=$dns | .bcw.take=$take' \
 		"$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+}
+
+z2_bcw_save_benchmark() {
+	n="$1"
+	case "$n" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	z2_state_init
+	tmp="$Z2_TMP/z2-state.$$"
+	jq --argjson n "$n" '.bcw.benchmark=$n' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+}
+
+z2_bcw_parse_bench() {
+	[ -f "$Z2_JOB_LOG" ] || return 0
+	tr -d '\000' < "$Z2_JOB_LOG" | awk '
+		function strip(s) {
+			gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s)
+			return s
+		}
+		{
+			s = strip($0)
+			if (match(s, /blockcheckw -w [0-9]+/)) {
+				t = substr(s, RSTART + 15)
+				gsub(/[^0-9].*/, "", t)
+				if (t ~ /^[0-9]+$/) rec = t
+			}
+			if (s ~ /^[0-9]+$/) lastn = s
+		}
+		END {
+			if (rec != "") print rec
+			else if (lastn != "") print lastn
+		}
+	'
 }
 
 z2_job_write() {
 	z2_mkdirs
-	printf '%s' "$1" > "$Z2_JOB"
+	tmp="$Z2_JOB.$$"
+	printf '%s' "$1" > "$tmp" && mv "$tmp" "$Z2_JOB"
 }
 
 z2_bcw_available() {
@@ -1136,36 +1249,286 @@ z2_bcw_elapsed() {
 	fi
 }
 
+z2_bcw_stat_get() {
+	n=0
+	[ -f "$1" ] && n=$(cat "$1" 2>/dev/null)
+	case "$n" in ''|*[!0-9]*) n=0 ;; esac
+	printf '%s' "$n"
+}
+
+z2_bcw_stat_add() {
+	file="$1"
+	add="$2"
+	case "$add" in ''|*[!0-9]*) add=0 ;; esac
+	[ "$add" -gt 0 ] || return 0
+	cur=$(z2_bcw_stat_get "$file")
+	echo $((cur + add)) > "$file"
+}
+
+z2_bcw_note() {
+	printf '%s\n' "$1" >>"$Z2_JOB_LOG"
+	printf '%s\n' "$1" >>"$Z2_NOTES"
+}
+
+z2_bcw_progress_line() {
+	[ -f "$Z2_JOB_LOG" ] || return 0
+	tail -c 16384 "$Z2_JOB_LOG" 2>/dev/null | tr -d '\000' | awk '
+		function strip(s) {
+			gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s)
+			gsub(/\r/, "", s)
+			return s
+		}
+		function trim(s) {
+			gsub(/^[ \t]+|[ \t]+$/, "", s)
+			return s
+		}
+		function clip(s) {
+			if (length(s) > 120) s = substr(s, 1, 117) "..."
+			return s
+		}
+		function useful(s) {
+			if (match(s, /OK median /)) return substr(s, RSTART)
+			if (match(s, /FAIL [0-9]+\/[0-9]+/)) return substr(s, RSTART)
+			if (match(s, /PASS [0-9]+\/[0-9]+/)) return substr(s, RSTART)
+			if (match(s, /[[][0-9]+\/[0-9]+[]]/)) {
+				t = substr(s, RSTART)
+				if (match(t, / nfqws2/)) t = substr(t, 1, RSTART - 1)
+				return t
+			}
+			if (s ~ /check loaded [0-9]+ strategies/) return s
+			if (s ~ /Checking strategies/) return s
+			if (index(s, "working:") > 0 && index(s, "total:") > 0) return s
+			if (match(s, /Recommended:/)) return substr(s, RSTART)
+			if (match(s, /w=[0-9]+/)) return substr(s, RSTART)
+			if (s ~ /stopping:/) return s
+			if (s ~ /blockcheckw benchmark/) return s
+			if (s ~ /Scanning /) return s
+			return ""
+		}
+		{
+			n = split($0, p, /\r/)
+			for (i = 1; i <= n; i++) {
+				s = trim(strip(p[i]))
+				if (s == "") continue
+				u = useful(s)
+				if (u != "") last = clip(trim(u))
+			}
+		}
+		END { if (last != "") print last }
+	' 2>/dev/null
+}
+
+z2_bcw_stats_tick() {
+	[ -f "$Z2_JOB_LOG" ] || return 0
+	lock="$Z2_TMP/bcw-stats.lock"
+	mkdir "$lock" 2>/dev/null || return 0
+	off=$(z2_bcw_stat_get "$Z2_TMP/bcw-avail.off")
+	sz=$(wc -c < "$Z2_JOB_LOG" 2>/dev/null | tr -d ' ')
+	case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
+	[ "$sz" -ge "$off" ] || off=0
+	if [ "$sz" -le "$off" ]; then
+		rmdir "$lock" 2>/dev/null || true
+		return 0
+	fi
+	start=$((off + 1))
+	tail -c +"$start" "$Z2_JOB_LOG" 2>/dev/null | tr -d '\000' | awk '
+		function strip(s) {
+			gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s)
+			return s
+		}
+		function trim(s) {
+			gsub(/^[ \t]+|[ \t]+$/, "", s)
+			return s
+		}
+		{
+			n = split($0, p, /\r/)
+			for (i = 1; i <= n; i++) {
+				s = trim(strip(p[i]))
+				if (s == "") continue
+				if (s ~ /=== /) {
+					sub(/.*=== /, "=== ", s)
+					sub(/OK nfqws2.*/, "", s)
+					s = trim(s)
+					if (s ~ /prerequisites/ || s ~ /Scanning HTTPS/ || length(s) < 8) continue
+					print "NOTE|" s
+					continue
+				}
+				if (s ~ /UNAVAILABLE/) { f++; continue }
+				if (s ~ /!!!!! AVAILABLE/) { a++; continue }
+				if (s ~ /OK median/) { co++; continue }
+				if (s ~ /FAIL [0-9]+\/[0-9]+/) { cf++; continue }
+				if (s ~ /PASS [0-9]+\/[0-9]+/) { co++; continue }
+				if (s ~ /without bypass/ || s ~ /Nothing to scan/ || s ~ /BLOCKED/) print "NOTE|" s
+				if (match(s, /check loaded [0-9]+ strategies/)) print "NOTE|" substr(s, RSTART, RLENGTH)
+				if (index(s, "working:") > 0 && index(s, "total:") > 0) print "NOTE|" s
+			}
+		}
+		END { printf "ADD|%d %d %d %d\n", a+0, f+0, co+0, cf+0 }
+	' 2>/dev/null | while IFS= read -r line; do
+		case "$line" in
+			ADD\|*)
+				set -- ${line#ADD|}
+				z2_bcw_stat_add "$Z2_TMP/bcw-avail.n" "$1"
+				z2_bcw_stat_add "$Z2_TMP/bcw-fail.n" "$2"
+				z2_bcw_stat_add "$Z2_TMP/bcw-check-ok.n" "$3"
+				z2_bcw_stat_add "$Z2_TMP/bcw-check-fail.n" "$4"
+				;;
+			NOTE\|*)
+				t=${line#NOTE|}
+				[ -n "$t" ] || continue
+				grep -qxF "$t" "$Z2_NOTES" 2>/dev/null || printf '%s\n' "$t" >>"$Z2_NOTES"
+				;;
+		esac
+	done
+	echo "$sz" > "$Z2_TMP/bcw-avail.off"
+	rmdir "$lock" 2>/dev/null || true
+}
+
+z2_bcw_log_ui() {
+	dest="$1"
+	[ -n "$dest" ] || dest="$Z2_LOG_UI"
+	z2_mkdirs
+	z2_bcw_stats_tick
+	{
+		[ -s "$Z2_NOTES" ] && cat "$Z2_NOTES"
+		prog=$(z2_bcw_progress_line)
+		if [ -n "$prog" ]; then
+			prog=$(printf '%s' "$prog" | tr -s ' ')
+			echo "$prog"
+		fi
+		jmode=$(jq -r '.mode // empty' "$Z2_JOB" 2>/dev/null)
+		if [ "$jmode" = "benchmark" ]; then
+			rec=$(z2_bcw_parse_bench)
+			[ -n "$rec" ] && echo "Рекомендуется потоков: $rec"
+		else
+			a=$(z2_bcw_stat_get "$Z2_TMP/bcw-avail.n")
+			f=$(z2_bcw_stat_get "$Z2_TMP/bcw-fail.n")
+			echo "Рабочих стратегий (scan): $a"
+			echo "Не сработали (scan): $f"
+			co=$(z2_bcw_stat_get "$Z2_TMP/bcw-check-ok.n")
+			cf=$(z2_bcw_stat_get "$Z2_TMP/bcw-check-fail.n")
+			if [ $((co + cf)) -gt 0 ]; then
+				echo "Проверка (check): успешно $co · не прошли $cf"
+			fi
+		fi
+	} > "$dest" 2>/dev/null
+}
+
+z2_bcw_run_one() {
+	export TERM=xterm-256color
+	export COLUMNS=120
+	export LINES=24
+	py=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+	if [ -n "$py" ]; then
+		"$py" -c 'import os, pty, sys
+os.environ["TERM"] = "xterm-256color"
+os.environ["COLUMNS"] = "120"
+st = pty.spawn(sys.argv[1:])
+sys.exit((st >> 8) & 0xff if st else 0)
+' "$@"
+		return $?
+	fi
+	pty_lua="/etc/routerich-panel/pty-run.lua"
+	if command -v lua >/dev/null 2>&1 && [ -f "$pty_lua" ]; then
+		lua "$pty_lua" "$@"
+		return $?
+	fi
+	if command -v script >/dev/null 2>&1 && script -q -c true /dev/null >/dev/null 2>&1; then
+		cmd=""
+		for a in "$@"; do
+			esc=$(printf '%s' "$a" | sed "s/'/'\\\\''/g")
+			cmd="$cmd '$esc'"
+		done
+		cmd=${cmd# }
+		script -q -f -c "$cmd" /dev/null
+		return $?
+	fi
+	"$@"
+}
+
+z2_bcw_avail_total() {
+	z2_bcw_stats_tick
+	z2_bcw_stat_get "$Z2_TMP/bcw-avail.n"
+}
+
+z2_bcw_report_ready() {
+	for f in "$Z2_WORK"/*_scan.json "$Z2_WORK"/scan.json \
+		"$Z2_WORK"/*_report_vanilla.txt "$Z2_WORK"/*_check.json \
+		"$Z2_WORK"/universal.json "$Z2_WORK"/universal_*.json; do
+		[ -f "$f" ] && [ -s "$f" ] || continue
+		return 0
+	done
+	return 1
+}
+
+z2_bcw_stop_cmd() {
+	cmdpid="$1"
+	[ -n "$cmdpid" ] || return 0
+	kill -TERM "$cmdpid" 2>/dev/null || true
+	killall -TERM blockcheckw >/dev/null 2>&1 || true
+	n=0
+	while [ "$n" -lt 25 ]; do
+		if z2_bcw_report_ready; then
+			sleep 1
+			return 0
+		fi
+		kill -0 "$cmdpid" 2>/dev/null || true
+		sleep 0.4 2>/dev/null || sleep 1
+		n=$((n + 1))
+	done
+	killall -TERM blockcheckw >/dev/null 2>&1 || true
+	sleep 2
+}
+
 z2_bcw_wait() {
-	"$@" >>"$Z2_JOB_LOG" 2>&1 &
+	z2_bcw_run_one "$@" >>"$Z2_JOB_LOG" 2>&1 &
 	cmdpid=$!
 	echo "$cmdpid" > "$Z2_CMD_PID"
 	tick=0
+	stop_at="$Z2_SCAN_TAKE"
+	case "$stop_at" in ''|*[!0-9]*) stop_at=0 ;; esac
+	hit=0
 	while kill -0 "$cmdpid" 2>/dev/null; do
-		sleep 1
+		sleep 0.4 2>/dev/null || sleep 1
 		tick=$((tick + 1))
-		[ $((tick % 15)) -eq 0 ] || continue
-		el=$(z2_bcw_elapsed)
-		mm=$((el / 60))
-		ss=$((el % 60))
-		printf '[%d:%02d] поиск идёт\n' "$mm" "$ss" >>"$Z2_JOB_LOG"
-		if [ -f "$Z2_JOB" ]; then
-			nxt=$(jq --argjson el "$el" '.elapsed=$el' "$Z2_JOB" 2>/dev/null) && z2_job_write "$nxt"
+		if [ $((tick % 3)) -eq 0 ] && [ -f "$Z2_JOB" ]; then
+			el=$(z2_bcw_elapsed)
+			nxt=$(jq --argjson el "$el" '.elapsed=$el' "$Z2_JOB" 2>/dev/null)
+			[ -n "$nxt" ] && z2_job_write "$nxt"
+		fi
+		z2_bcw_stats_tick
+		if [ "$stop_at" -gt 0 ]; then
+			got=$(z2_bcw_stat_get "$Z2_TMP/bcw-avail.n")
+			if [ "$got" -ge "$stop_at" ]; then
+				printf '\n' >>"$Z2_JOB_LOG"
+				z2_bcw_note "=== --take ${stop_at}: найдено ${got} рабочих, останавливаем scan ==="
+				z2_bcw_stop_cmd "$cmdpid"
+				hit=1
+				break
+			fi
 		fi
 	done
-	wait "$cmdpid"
+	wait "$cmdpid" 2>/dev/null
 	rc=$?
 	rm -f "$Z2_CMD_PID"
+	if [ "$hit" -eq 1 ]; then
+		n=0
+		while [ "$n" -lt 15 ]; do
+			z2_bcw_report_ready && break
+			sleep 0.4 2>/dev/null || sleep 1
+			n=$((n + 1))
+		done
+		return 0
+	fi
 	return $rc
 }
 
 z2_take_n() {
 	n="$1"
 	case "$n" in
-		''|*[!0-9]*) n=20 ;;
+		''|*[!0-9]*) n=100 ;;
 	esac
-	[ "$n" -lt 1 ] && n=20
-	[ "$n" -gt 50 ] && n=50
+	[ "$n" -gt 100 ] && n=100
 	printf '%s' "$n"
 }
 
@@ -1180,24 +1543,39 @@ z2_strip_nfqws2() {
 z2_extract_args_from_file() {
 	file="$1"
 	limit=$(z2_take_n "$2")
+	kind="$3"
+	[ "$limit" -eq 0 ] && limit=50
 	[ -f "$file" ] || return 0
+	[ -n "$kind" ] || kind="scan"
 	if jq -e 'type=="object" or type=="array"' "$file" >/dev/null 2>&1; then
-		jq -r --argjson n "$limit" '
-			if type=="array" then
-				.[0:$n][] | (if type=="string" then . else (.args // empty) end)
-			elif (.strategies | type)=="array" and ((.strategies|length) > 0) then
-				.strategies[0:$n][] | (if type=="string" then . else (.args // empty) end)
-			elif (.protocols | type)=="array" then
-				[.protocols[] | ((.strategies // [])[0:$n][]) | (if type=="string" then . else (.args // empty) end)][0:$n][]
-			else
-				[ .. | objects | .args? // empty ]
-				| flatten
-				| map(select(type=="string" and length>0))
-				| .[0:$n][]
-			end
+		jq -r --argjson n "$limit" --arg kind "$kind" '
+			def argof:
+				if type=="string" then .
+				elif type=="object" then (.args // empty)
+				else empty end;
+			def good_check:
+				((.success_rate == 1) or (.success_rate == 1.0));
+			def good_scan:
+				((.success_rate == 1) or (.success_rate == 1.0) or (.coverage == 1) or (.coverage == 1.0));
+			[ (if type=="array" then .[]
+			   elif (.strategies|type)=="array" then .strategies[]
+			   else empty end),
+			  (if (.protocols|type)=="array" then .protocols[] | ((.strategies // [])[])
+			   else empty end)
+			] as $all
+			| (if $kind == "check" then
+				($all | map(select(type=="object" and good_check)))
+			  else
+				($all | map(select(type=="object" and good_scan))) as $ok
+				| (if ($ok|length) > 0 then $ok else $all end)
+			  end)
+			| map(argof)
+			| map(select(type=="string" and length>0))
+			| .[0:$n][]
 		' "$file" 2>/dev/null | z2_strip_nfqws2
 		return 0
 	fi
+	[ "$kind" = "check" ] && return 0
 	awk -v lim="$limit" '
 		/nfqws2|--lua-desync=/ {
 			s=$0
@@ -1212,15 +1590,29 @@ z2_extract_args_from_file() {
 	' "$file"
 }
 
+z2_bcw_find_check_report() {
+	f=$(z2_bcw_latest "$Z2_WORK"/*_check.json "$Z2_WORK"/check.json)
+	[ -n "$f" ] && [ -s "$f" ] && printf '%s' "$f"
+}
+
+z2_bcw_latest() {
+	ls -t "$@" 2>/dev/null | head -1
+}
+
 z2_bcw_find_report() {
+	f=$(z2_bcw_latest "$Z2_WORK"/*_check.json "$Z2_WORK"/check.json)
+	[ -n "$f" ] && [ -s "$f" ] && { printf '%s' "$f"; return 0; }
+	f=$(z2_bcw_latest "$Z2_WORK"/universal.json "$Z2_WORK"/universal_*.json)
+	[ -n "$f" ] && [ -s "$f" ] && { printf '%s' "$f"; return 0; }
+	f=$(z2_bcw_latest "$Z2_WORK"/*_scan.json "$Z2_WORK"/scan.json)
+	[ -n "$f" ] && [ -s "$f" ] && { printf '%s' "$f"; return 0; }
+	f=$(z2_bcw_latest "$Z2_WORK"/*_report_vanilla.txt "$Z2_WORK"/*report*)
+	[ -n "$f" ] && [ -s "$f" ] && { printf '%s' "$f"; return 0; }
 	found_txt=""
-	for f in "$Z2_WORK"/check.json "$Z2_WORK"/*_check.json \
-		"$Z2_WORK"/scan.json "$Z2_WORK"/*_scan.json \
-		"$Z2_WORK"/universal.json "$Z2_WORK"/*_universal.json \
-		"$Z2_WORK"/*report* "$Z2_WORK"/*.json "$Z2_WORK"/*.txt; do
+	for f in "$Z2_WORK"/*.json "$Z2_WORK"/*.txt; do
 		[ -f "$f" ] && [ -s "$f" ] || continue
 		case "$f" in
-			*/args.txt|*/domains.txt) continue ;;
+			*/args.txt|*/domains.txt|*/check-in.txt) continue ;;
 		esac
 		if jq -e '((type=="object") and ((.strategies|type)=="array" or (.protocols|type)=="array")) or (type=="array")' "$f" >/dev/null 2>&1; then
 			printf '%s' "$f"
@@ -1229,6 +1621,37 @@ z2_bcw_find_report() {
 		[ -z "$found_txt" ] && found_txt="$f"
 	done
 	[ -n "$found_txt" ] && printf '%s' "$found_txt"
+}
+
+z2_bcw_json_to_vanilla() {
+	json="$1"
+	domain="$2"
+	proto="$3"
+	out="$4"
+	limit=$(z2_take_n "$5")
+	[ -f "$json" ] || return 1
+	case "$proto" in
+		*tls13*) pr=tls13 ;;
+		*http*) pr=http ;;
+		*) pr=tls12 ;;
+	esac
+	jq -r --argjson n "$limit" --arg d "$domain" --arg pr "$pr" '
+		def argof: if type=="string" then . else (.args // empty) end;
+		(if (.strategies|type)=="array" then .strategies
+		 elif (.protocols|type)=="array" then [.protocols[] | ((.strategies // [])[])]
+		 else [] end) as $s
+		| $s[0:$n][] | argof
+		| select(length>0)
+		| (if startswith("nfqws2 ") then .[7:] else . end) as $a
+		| "curl_test_https_\($pr) ipv4 \($d) : nfqws2 " + $a
+	' "$json" > "$out" 2>/dev/null
+	[ -s "$out" ]
+}
+
+z2_bcw_set_step() {
+	step="$1"
+	[ -f "$Z2_JOB" ] || return 0
+	nxt=$(jq --arg s "$step" '.step=$s' "$Z2_JOB" 2>/dev/null) && z2_job_write "$nxt"
 }
 
 z2_bcw_write_report() {
@@ -1266,53 +1689,105 @@ z2_bcw_execute() {
 	domains=$(jq -r '.domains' "$Z2_JOB")
 	timeout=$(jq -r '.timeout' "$Z2_JOB")
 	dns=$(jq -r '.dns' "$Z2_JOB")
-	take=$(z2_take_n "$(jq -r '.take // 20' "$Z2_JOB")")
+	take=$(z2_take_n "$(jq -r '.take // 100' "$Z2_JOB")")
+	ext="$take"
+	[ "$ext" -eq 0 ] && ext=50
 	restore=$(jq -r '.restore_zapret2 // false' "$Z2_JOB")
 
-	z2_job_write "$(jq --arg p "running" --arg m "$mode" '.phase=$p | .mode=$m | .error=null' "$Z2_JOB")"
+	z2_job_write "$(jq --arg p "running" --arg m "$mode" '.phase=$p | .mode=$m | .error=null | .step="stop"' "$Z2_JOB")"
 
-	z2_stop_v2
+	z2_bcw_note "=== Останавливаем zapret2 ==="
+	z2_pause_v2
 	z2_stop_v1
+	sleep 2
+	z2_bcw_note "=== zapret2 остановлен ==="
 
 	ok=0
 	err=""
 	stamp=$(date +%Y-%m-%d_%H-%M-%S)
 	safe=$(printf '%s' "$domains" | tr ' ,/' '___')
+	first_domain=$(printf '%s' "$domains" | tr ', ' '\n' | sed '/^$/d' | head -1)
+	[ -n "$first_domain" ] || first_domain="$domains"
 	case "$mode" in
 		quick)
+			z2_bcw_set_step scan
+			z2_bcw_note "=== Сканирование (scan) ==="
+			Z2_SCAN_TAKE="$take"
+			export Z2_SCAN_TAKE
 			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup scan \
-				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" --top 20 \
-				-o "$Z2_WORK/scan.json"; then
+				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" --top "$take"; then
 				ok=1
 			fi
+			unset Z2_SCAN_TAKE
 			;;
 		full)
+			z2_bcw_set_step scan
+			z2_bcw_note "=== Сканирование (scan) ==="
+			Z2_SCAN_TAKE="$take"
+			export Z2_SCAN_TAKE
 			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup scan \
-				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" \
-				-o "$Z2_WORK/scan.json"; then
+				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" --top "$take"; then
 				ok=1
 			fi
-			rep=""
-			[ -f "$Z2_WORK/scan.json" ] && rep="$Z2_WORK/scan.json"
-			[ -z "$rep" ] && rep=$(ls -t "$Z2_WORK"/*report* "$Z2_WORK"/*.txt 2>/dev/null | head -1)
-			if [ -n "$rep" ]; then
-				z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
-					--from-file "$rep" -d "$domains" --dns "$dns" --take "$take" \
-					-o "$Z2_WORK/check.json" || true
+			unset Z2_SCAN_TAKE
+			rep=$(z2_bcw_latest "$Z2_WORK"/*_report_vanilla.txt "$Z2_WORK"/*_scan.json "$Z2_WORK"/*report*)
+			if [ -n "$rep" ] && [ -s "$rep" ]; then
+				z2_bcw_set_step check
+				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
+				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+					--from-file "$rep" -d "$first_domain" --dns "$dns" --take "$take"; then
+					z2_bcw_note "=== check завершился с ошибкой ==="
+				fi
+			else
+				z2_bcw_note "=== Нет отчёта scan — check пропущен ==="
 			fi
 			;;
 		universal)
 			printf '%s\n' "$domains" | tr ' ,' '\n' | sed '/^$/d' > "$Z2_WORK/domains.txt"
+			z2_bcw_set_step scan
+			z2_bcw_note "=== Универсальный поиск (несколько доменов) ==="
+			Z2_SCAN_TAKE="$take"
+			export Z2_SCAN_TAKE
 			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup universal \
 				--domain-list "$Z2_WORK/domains.txt" -p "$proto" --dns "$dns" \
 				-o "$Z2_WORK/universal.json"; then
 				ok=1
 			fi
-			if [ -f "$Z2_WORK/universal.json" ]; then
-				z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
-					--from-file "$Z2_WORK/universal.json" -d "$(awk 'NR==1{print;exit}' "$Z2_WORK/domains.txt")" \
-					--dns "$dns" --take "$take" \
-					-o "$Z2_WORK/check.json" || true
+			unset Z2_SCAN_TAKE
+			ucheck="$Z2_WORK/check-in.txt"
+			if z2_bcw_json_to_vanilla "$Z2_WORK/universal.json" "$first_domain" "$proto" "$ucheck" "$ext"; then
+				z2_bcw_set_step check
+				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
+				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+					--from-file "$ucheck" -d "$first_domain" --dns "$dns" --take "$take"; then
+					z2_bcw_note "=== check завершился с ошибкой ==="
+				fi
+			elif [ -f "$Z2_WORK/universal.json" ]; then
+				z2_bcw_set_step check
+				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
+				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+					--from-file "$Z2_WORK/universal.json" -d "$first_domain" --dns "$dns" --take "$take"; then
+					z2_bcw_note "=== check завершился с ошибкой ==="
+				fi
+			else
+				z2_bcw_note "=== Нет universal.json — check пропущен ==="
+			fi
+			;;
+		benchmark)
+			z2_bcw_set_step bench
+			z2_bcw_note "=== Benchmark потоков ==="
+			proto_one=tls12
+			case "$proto" in
+				http) proto_one=http ;;
+				*tls13*) proto_one=tls13 ;;
+				*) proto_one=tls12 ;;
+			esac
+			maxw=$(z2_default_workers)
+			[ "$maxw" -ge 128 ] && maxw=256
+			[ "$maxw" -lt 64 ] && maxw=64
+			if z2_bcw_wait blockcheckw --auto --no-conflict-cleanup benchmark \
+				-t 15 -M "$maxw" -d "$first_domain" -p "$proto_one"; then
+				ok=1
 			fi
 			;;
 		*)
@@ -1320,21 +1795,66 @@ z2_bcw_execute() {
 			;;
 	esac
 
+	results=""
+	bench_rec=""
+	if [ "$mode" = "benchmark" ]; then
+		bench_rec=$(z2_bcw_parse_bench)
+		if [ -n "$bench_rec" ]; then
+			z2_bcw_save_benchmark "$bench_rec"
+			z2_bcw_note "=== Рекомендуется потоков: $bench_rec ==="
+		else
+			z2_bcw_note "=== Нет рекомендации (тест не завершён?) ==="
+		fi
+	else
 	results="$Z2_BCW_DIR/${stamp}_${safe}_${mode}.json"
 	args_file="$Z2_WORK/args.txt"
 	: > "$args_file"
-	rep=$(z2_bcw_find_report)
-	if [ -n "$rep" ]; then
-		z2_extract_args_from_file "$rep" "$take" >> "$args_file"
-	fi
 	verified=0
-	case "$rep" in *check*) verified=1 ;; esac
+	rep=""
+	need_check=0
+	case "$mode" in full|universal) need_check=1 ;; esac
+	n=0
+	if [ "$need_check" -eq 1 ]; then
+		while [ "$n" -lt 20 ]; do
+			rep=$(z2_bcw_find_check_report)
+			[ -n "$rep" ] && [ -s "$rep" ] && break
+			sleep 0.4 2>/dev/null || sleep 1
+			n=$((n + 1))
+		done
+		if [ -n "$rep" ] && [ -s "$rep" ]; then
+			z2_extract_args_from_file "$rep" "$ext" check > "$args_file"
+			verified=1
+			cnt=$(wc -l < "$args_file" 2>/dev/null | tr -d ' ')
+			z2_bcw_note "=== В отчёт: ${cnt:-0} стратегий, прошедших check ==="
+		else
+			z2_bcw_note "=== Нет *_check.json — отчёт пустой (scan без проверки не сохраняем) ==="
+		fi
+	else
+		while [ "$n" -lt 20 ]; do
+			rep=$(z2_bcw_find_report)
+			if [ -n "$rep" ] && [ -s "$rep" ]; then
+				z2_extract_args_from_file "$rep" "$ext" scan > "$args_file"
+				[ -s "$args_file" ] && break
+			fi
+			sleep 0.4 2>/dev/null || sleep 1
+			n=$((n + 1))
+		done
+		if [ ! -s "$args_file" ]; then
+			rep=$(z2_bcw_find_report)
+			[ -n "$rep" ] && z2_extract_args_from_file "$rep" "$ext" scan > "$args_file"
+		fi
+		cnt=$(wc -l < "$args_file" 2>/dev/null | tr -d ' ')
+		z2_bcw_note "=== В отчёт: ${cnt:-0} стратегий (scan) ==="
+	fi
 	if ! z2_bcw_write_report "$mode" "$domains" "$proto" "$stamp" "$verified" "$args_file" "$results"; then
 		[ -n "$err" ] || err="Не удалось сохранить отчёт"
 		results=""
 	fi
+	fi
 
+	z2_bcw_note "=== Готово ==="
 	if [ "$restore" = "true" ]; then
+		z2_bcw_note "=== Запускаем zapret2 ==="
 		z2_start_v2 >/dev/null 2>&1 || true
 	fi
 
@@ -1342,8 +1862,13 @@ z2_bcw_execute() {
 	[ -n "$err" ] && phase="error"
 	restore_json=false
 	[ "$restore" = "true" ] && restore_json=true
-	z2_job_write "$(jq -n --arg p "$phase" --arg e "$err" --arg r "$results" --arg mode "$mode" --argjson restore "$restore_json" \
-		'{phase:$p, error:(if $e=="" then null else $e end), results:(if $r=="" then null else $r end), mode:$mode, running:false, restore_zapret2:$restore}')"
+	if [ -n "$bench_rec" ]; then
+		z2_job_write "$(jq -n --arg p "$phase" --arg e "$err" --arg r "$results" --arg mode "$mode" --argjson restore "$restore_json" --argjson bench "$bench_rec" \
+			'{phase:$p, error:(if $e=="" then null else $e end), results:(if $r=="" then null else $r end), mode:$mode, running:false, restore_zapret2:$restore, benchmark:$bench}')"
+	else
+		z2_job_write "$(jq -n --arg p "$phase" --arg e "$err" --arg r "$results" --arg mode "$mode" --argjson restore "$restore_json" \
+			'{phase:$p, error:(if $e=="" then null else $e end), results:(if $r=="" then null else $r end), mode:$mode, running:false, restore_zapret2:$restore, benchmark:null}')"
+	fi
 	rm -f "$Z2_JOB_PID" "$Z2_CMD_PID"
 }
 
@@ -1388,17 +1913,26 @@ z2_bcw_start() {
 	domains="$4"
 	timeout="$5"
 	dns="$6"
+	take=$(z2_take_n "$7")
 	z2_bcw_available || return 1
 	z2_bcw_running && return 2
 	z2_slottest_running && return 2
 	z2_mkdirs
 	: > "$Z2_JOB_LOG"
+	: > "$Z2_PROGRESS"
+	: > "$Z2_LOG_UI"
+	: > "$Z2_NOTES"
+	echo 0 > "$Z2_TMP/bcw-avail.off"
+	echo 0 > "$Z2_TMP/bcw-avail.n"
+	echo 0 > "$Z2_TMP/bcw-fail.n"
+	echo 0 > "$Z2_TMP/bcw-check-ok.n"
+	echo 0 > "$Z2_TMP/bcw-check-fail.n"
 	was=0
 	z2_running && was=1
-	z2_bcw_save_settings "$workers" "$proto" "$domains" "$timeout" "$dns"
+	z2_bcw_save_settings "$workers" "$proto" "$domains" "$timeout" "$dns" "$take"
 	started=$(date +%s)
 	jq -n --arg m "$mode" --argjson w "$workers" --arg p "$proto" --arg d "$domains" \
-		--argjson t "$timeout" --arg dns "$dns" --argjson restore "$was" --argjson take 20 \
+		--argjson t "$timeout" --arg dns "$dns" --argjson restore "$was" --argjson take "$take" \
 		--argjson started "$started" \
 		'{mode:$m, workers:$w, proto:$p, domains:$d, timeout:$t, dns:$dns, take:$take, restore_zapret2:($restore==1), phase:"starting", running:true, error:null, started_at:$started, elapsed:0}' \
 		> "$Z2_JOB"
@@ -1798,9 +2332,15 @@ z2_nfq_blocks_json() {
 	z2_mkdirs
 	raw="$Z2_TMP/nfq-blocks.jsonl"
 	: > "$raw"
+	if z2_bcw_running; then
+		printf '[]'
+		return 0
+	fi
 	for pid in $(pgrep nfqws2 2>/dev/null); do
-		cmd="$Z2_TMP/nfqcmd.$pid"
-		tr '\0' '\n' < "/proc/$pid/cmdline" > "$cmd" 2>/dev/null || continue
+		[ -r "/proc/$pid/cmdline" ] || continue
+		cmd="$Z2_TMP/nfqcmd.$$.$pid"
+		tr '\0' '\n' < "/proc/$pid/cmdline" > "$cmd" 2>/dev/null || { rm -f "$cmd"; continue; }
+		[ -s "$cmd" ] || { rm -f "$cmd"; continue; }
 		awk -v pid="$pid" '
 			function flush() {
 				if (name == "" && payload == "" && qnum == "") return
@@ -1818,7 +2358,7 @@ z2_nfq_blocks_json() {
 			waitp { payload = $0; waitp = 0; next }
 			$0 ~ /^--payload=/ { payload = substr($0, 11); next }
 			END { flush() }
-		' "$cmd" >> "$raw"
+		' "$cmd" >> "$raw" 2>/dev/null
 		rm -f "$cmd"
 	done
 	if [ ! -s "$raw" ]; then
@@ -1873,7 +2413,7 @@ z2_status_json() {
 	bcw_ver=""
 	[ "$bcw" -eq 1 ] && bcw_ver="blockcheckw"
 	nfq=$(pgrep nfqws2 2>/dev/null | wc -l)
-	nfq_blocks=$(z2_nfq_blocks_json)
+	nfq_blocks=$(z2_nfq_blocks_json 2>/dev/null)
 	[ -n "$nfq_blocks" ] || nfq_blocks='[]'
 	profiles='[]'
 	if [ "$installed" -eq 1 ]; then
@@ -1920,12 +2460,8 @@ EOF
 		results=$(jq -s '[.[] | {stamp, mode, domains, proto, verified, count:(.strategies|length)}] | sort_by(.stamp) | reverse' $res_list 2>/dev/null)
 		[ -n "$results" ] || results='[]'
 	fi
-	logf="$Z2_TMP/bcw-log-tail.txt"
-	if [ -f "$Z2_JOB_LOG" ]; then
-		tail -n 60 "$Z2_JOB_LOG" > "$logf" 2>/dev/null || : > "$logf"
-	else
-		: > "$logf"
-	fi
+	logf="$Z2_LOG_UI"
+	z2_bcw_log_ui "$logf"
 	jq -n \
 		--argjson installed "$installed" \
 		--argjson running "$running" \
@@ -1979,6 +2515,14 @@ z2_backup_restore() {
 	uci -q commit zapret2 >/dev/null 2>&1 || true
 	rm -f "$Z2_STATE"
 	z2_state_init
+}
+
+z2_bcw_clear_results() {
+	z2_bcw_running && return 1
+	rm -f "$Z2_BCW_DIR"/*.json
+	rm -rf "$Z2_WORK"
+	mkdir -p "$Z2_WORK" "$Z2_BCW_DIR"
+	return 0
 }
 
 z2_result_detail() {

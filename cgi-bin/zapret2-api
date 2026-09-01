@@ -168,6 +168,12 @@ api_apply() {
 			z2_reorder_slots "$name" "$order" || { json_error "Некорректный порядок слотов"; return; }
 			z2_restart_v2
 			;;
+		profile-reorder)
+			order=$(printf '%s' "$POST_JSON" | jq -c '.order // empty')
+			[ -n "$order" ] && [ "$order" != "null" ] || { json_error "Укажите порядок профилей"; return; }
+			z2_reorder_profiles "$order" || { json_error "Некорректный порядок профилей"; return; }
+			z2_restart_v2
+			;;
 		circ-style)
 			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
 			style=$(printf '%s' "$POST_JSON" | jq -r '.style // empty')
@@ -222,23 +228,32 @@ api_apply() {
 			domains=$(printf '%s' "$POST_JSON" | jq -r '.domains // empty')
 			timeout=$(printf '%s' "$POST_JSON" | jq -r '.timeout // empty')
 			dns=$(printf '%s' "$POST_JSON" | jq -r '.dns // empty')
+			take=$(printf '%s' "$POST_JSON" | jq -r '.take // empty')
 			cfg=$(z2_bcw_settings)
 			[ -n "$workers" ] || workers=$(printf '%s' "$cfg" | jq -r '.workers')
 			[ -n "$proto" ] || proto=$(printf '%s' "$cfg" | jq -r '.proto')
 			[ -n "$domains" ] || domains=$(printf '%s' "$cfg" | jq -r '.domains')
 			[ -n "$timeout" ] || timeout=$(printf '%s' "$cfg" | jq -r '.timeout')
 			[ -n "$dns" ] || dns=$(printf '%s' "$cfg" | jq -r '.dns')
+			[ -n "$take" ] || take=$(printf '%s' "$cfg" | jq -r '.take // 100')
 			maxw=$(z2_default_workers)
-			[ "$workers" -gt 128 ] 2>/dev/null && workers=128
+			[ "$workers" -gt 256 ] 2>/dev/null && workers=256
 			[ "$workers" -lt 1 ] 2>/dev/null && workers="$maxw"
-			case "$mode" in quick|full|universal) ;; *) json_error "mode: quick|full|universal"; return ;; esac
-			if ! z2_bcw_start "$mode" "$workers" "$proto" "$domains" "$timeout" "$dns"; then
+			case "$mode" in quick|full|universal|benchmark) ;; *) json_error "mode: quick|full|universal|benchmark"; return ;; esac
+			if ! z2_bcw_start "$mode" "$workers" "$proto" "$domains" "$timeout" "$dns" "$take"; then
 				json_error "Не удалось запустить поиск"
 				return
 			fi
 			;;
 		bcw-stop)
 			z2_bcw_stop
+			;;
+		bcw-clear)
+			if z2_bcw_running; then
+				json_error "Сначала остановите поиск"
+				return
+			fi
+			z2_bcw_clear_results
 			;;
 		bcw-embed)
 			profile=$(printf '%s' "$POST_JSON" | jq -r '.profile // empty')
@@ -283,9 +298,6 @@ api_apply() {
 				delete) rm -f "$Z2_BACKUP" ;;
 				*) json_error "backup: save|restore|delete"; return ;;
 			esac
-			;;
-		reload-lists)
-			[ -x "$Z2_INIT" ] && "$Z2_INIT" reload >/dev/null 2>&1
 			;;
 		slottest-start)
 			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
@@ -345,15 +357,17 @@ case "$REQUEST_METHOD" in
 					if [ "$run" -eq 0 ] && [ "$phase" = "starting" ]; then
 						z2_job_write "$(jq '.phase="error" | .running=false | .error="Поиск не запустился"' "$Z2_JOB")"
 					fi
-					logf="$Z2_TMP/bcw-log-tail.txt"
-					if [ -f "$Z2_JOB_LOG" ]; then
-						tail -n 80 "$Z2_JOB_LOG" > "$logf" 2>/dev/null || : > "$logf"
-					else
-						: > "$logf"
-					fi
-					jq -n --slurpfile job "$Z2_JOB" --rawfile log "$logf" --argjson running "$run" \
-						--argjson now "$(date +%s)" \
-						'{job:($job[0] + {running:($running==1), now:$now}), log:$log}' | json_ok
+					z2_bcw_log_ui "$Z2_LOG_UI"
+					prog=$(z2_bcw_progress_line)
+					avail=$(z2_bcw_stat_get "$Z2_TMP/bcw-avail.n")
+					failn=$(z2_bcw_stat_get "$Z2_TMP/bcw-fail.n")
+					cok=$(z2_bcw_stat_get "$Z2_TMP/bcw-check-ok.n")
+					cfail=$(z2_bcw_stat_get "$Z2_TMP/bcw-check-fail.n")
+					jq -n --slurpfile job "$Z2_JOB" --rawfile log "$Z2_LOG_UI" --argjson running "$run" \
+						--argjson now "$(date +%s)" --arg pr "$prog" \
+						--argjson avail "$avail" --argjson fail "$failn" \
+						--argjson cok "$cok" --argjson cfail "$cfail" \
+						'{job:($job[0] + {running:($running==1), now:$now, progress:(if $pr=="" then ($job[0].progress // "") else $pr end), avail:$avail, fail:$fail, check_ok:$cok, check_fail:$cfail}), log:$log}' | json_ok
 				else
 					jq -n '{job:{running:false, phase:"idle"}, log:""}' | json_ok
 				fi

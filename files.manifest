@@ -15,6 +15,7 @@
     {"src": "VERSION", "dst": "/etc/routerich-panel/VERSION", "mode": "644"},
     {"src": "lib/zapret-headless.sh", "dst": "/etc/routerich-panel/zapret-headless.sh", "mode": "755"},
     {"src": "lib/zapret2-headless.sh", "dst": "/etc/routerich-panel/zapret2-headless.sh", "mode": "755"},
+    {"src": "lib/pty-run.lua", "dst": "/etc/routerich-panel/pty-run.lua", "mode": "755"},
     {"src": "lib/network-fallback.sh", "dst": "/etc/routerich-panel/network-fallback.sh", "mode": "755"},
     {"src": "index.html", "dst": "/www/routerich-panel/index.html", "mode": "644"},
     {"src": "notifications.js", "dst": "/www/routerich-panel/notifications.js", "mode": "644"},

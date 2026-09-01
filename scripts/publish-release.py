@@ -59,6 +59,7 @@ def main() -> int:
     token = git_github_token()
     release_body = (
         f"## RouteRich Panel {version}\n\n"
+        "переработка api с доработкой панели zapret2\n\n"
         "### Windows-установщик\n"
         f"Скачайте **`{zip_path.name}`**, распакуйте и запустите:\n"
         "1. `1-Install-Prerequisites.bat`\n"

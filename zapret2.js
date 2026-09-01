@@ -14,6 +14,8 @@
   let liveJob = null;
   let liveLog = '';
   let liveSyncedAt = 0;
+  let searchWatch = false;
+  let pollBusy = false;
   let resultItems = [];
   let selectedStamp = '';
   let nfqOpen = false;
@@ -108,7 +110,7 @@
     const body = document.getElementById('zapret2-body');
     const tabbar = document.getElementById('zapret2-tabs');
     if (!el) return;
-    if (d && d.installed) {
+    if ((d && d.installed) || searchWatch || jobSearching(d && d.job)) {
       el.hidden = true;
       el.innerHTML = '';
       if (body) body.classList.remove('zapret-disabled');
@@ -214,7 +216,11 @@
       el.innerHTML = '<p class="zp-muted">Нет стратегий.</p>';
       return;
     }
-    el.innerHTML = profiles.map(function (p) {
+    const canSort = profiles.length > 1;
+    const listHint = canSort
+      ? '<p class="zp-muted z2-drag-hint">Перетащите профили за ручку слева, чтобы сменить порядок.</p>'
+      : '';
+    el.innerHTML = listHint + profiles.map(function (p) {
       const disabled = {};
       (p.disabled || []).forEach(function (id) { disabled[id] = true; });
       const st = (d && d.slottest) || {};
@@ -257,8 +263,13 @@
       const testNote = testing
         ? '<p class="zp-muted z2-drag-hint">Только включённые. Список хостов профиля (иначе v1). 5 лучших станут #1–#5.</p>'
         : '';
+      const dragBtn = canSort
+        ? '<button type="button" class="z2-profile-drag" data-z2-profile-drag="' + p.name +
+          '" title="Перетащите, чтобы сменить порядок" aria-label="Порядок профиля"><span aria-hidden="true"></span></button>'
+        : '';
       return '<div class="zp-section z2-profile" data-profile="' + p.name + '">' +
         '<div class="z2-profile-head">' +
+        dragBtn +
         '<h3>' + p.name + '</h3>' +
         '<button type="button" class="zp-toggle' + (p.enabled ? ' active' : '') + '" data-z2-profile="' + p.name + '">' +
         (p.enabled ? 'Вкл' : 'Выкл') + '</button> ' +
@@ -287,6 +298,29 @@
     set('z2-bcw-proto', cfg.proto);
     set('z2-bcw-dns', cfg.dns);
     set('z2-bcw-timeout', cfg.timeout);
+    set('z2-bcw-take', cfg.take != null ? cfg.take : 100);
+  }
+
+  function isBenchJob(job) {
+    return !!(job && job.mode === 'benchmark');
+  }
+
+  function renderBenchHint(n, running) {
+    const el = document.getElementById('z2-bcw-bench-hint');
+    if (!el) return;
+    if (running) {
+      el.hidden = false;
+      el.textContent = 'идёт…';
+      return;
+    }
+    const v = Number(n);
+    if (v > 0) {
+      el.hidden = false;
+      el.textContent = 'рекомендуется ' + v;
+    } else {
+      el.textContent = '';
+      el.hidden = true;
+    }
   }
 
   function fillEmbedTargets(d) {
@@ -370,7 +404,7 @@
 
   function modeLabel(mode) {
     if (mode === 'quick') return 'быстрый';
-    if (mode === 'full') return 'полный';
+    if (mode === 'full') return 'стандартный';
     if (mode === 'universal') return 'универсальный';
     return mode || '';
   }
@@ -391,6 +425,8 @@
     const items = (d && d.results) || [];
     const keep = selectedStamp || sel.value;
     sel.innerHTML = '';
+    const clearBtn = document.getElementById('z2-bcw-clear');
+    if (clearBtn) clearBtn.disabled = !items.length;
     if (!items.length) {
       const opt = document.createElement('option');
       opt.value = '';
@@ -454,11 +490,24 @@
   function showSearchProgress(on) {
     const el = document.getElementById('z2-bcw-progress');
     if (el) el.hidden = !on;
+    const params = document.getElementById('z2-bcw-params');
+    const keep = isBenchJob(liveJob) || isBenchJob(data && data.job);
+    if (params) params.hidden = !!(on && !keep);
   }
 
   function jobSearching(job) {
     if (!job) return false;
     return !!(job.running || job.phase === 'running' || job.phase === 'starting');
+  }
+
+  function searchInFlight() {
+    return !!(searchWatch || jobSearching(liveJob) || jobSearching(data && data.job));
+  }
+
+  function onSearchLeave(e) {
+    if (!searchInFlight()) return;
+    e.preventDefault();
+    e.returnValue = '';
   }
 
   function renderLog(text) {
@@ -468,13 +517,21 @@
     el.scrollTop = el.scrollHeight;
   }
 
+  function stripAnsi(s) {
+    return String(s || '').replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+  }
+
   function parseScanMeta(log) {
-    const t = String(log || '');
+    const t = stripAnsi(log || '');
     const start = t.match(/\[START\] Scanning ([^:]+):\s*(\d+)\s*items/i);
+    const bar = t.match(/(?:Scanning|Checking)[^\n]*?(\d+)\s*\/\s*(\d+)[^\n]*?(?:\(([^)]+)\))?/i);
+    const proto = ((t.match(/(?:Scanning|Checking)\s+(\S+)/i) || [])[1] || '').replace(/:+$/, '');
     const workers = t.match(/workers\s*=\s*(\d+)/i);
     return {
-      proto: start ? start[1].trim() : '',
-      items: start ? Number(start[2]) : 0,
+      proto: start ? start[1].trim() : proto,
+      items: start ? Number(start[2]) : (bar ? Number(bar[2]) : 0),
+      done: bar ? Number(bar[1]) : 0,
+      rate: bar && bar[3] ? bar[3].trim() : '',
       workers: workers ? Number(workers[1]) : 0
     };
   }
@@ -500,14 +557,57 @@
     const box = document.getElementById('z2-bcw-live');
     const text = document.getElementById('z2-bcw-live-text');
     if (!box || !text) return;
-    const on = jobSearching(liveJob);
+    const on = jobSearching(liveJob) || searchWatch;
     box.hidden = !on;
     if (!on) return;
-    const meta = parseScanMeta(liveLog);
-    const parts = ['Идёт проверка'];
-    if (meta.proto) parts.push(meta.proto);
-    if (meta.items) parts.push(meta.items + ' шт.');
-    if (meta.workers) parts.push(meta.workers + ' потоков');
+    const prog = stripAnsi((liveJob && liveJob.progress) || '').replace(/\s+/g, ' ').trim();
+    const step = (liveJob && liveJob.step) || '';
+    const meta = parseScanMeta((prog ? prog + '\n' : '') + liveLog);
+    const parts = [];
+    const isBench = isBenchJob(liveJob) || step === 'bench' || /blockcheckw benchmark|Recommended:/i.test(prog);
+    const isCheck = !isBench && (step === 'check' || /Checking|FAIL |OK median|check loaded|\[\d+\/\d+\]/i.test(prog));
+    if (step === 'stop') parts.push('Остановка zapret2');
+    else if (isBench) parts.push('Benchmark');
+    else if (isCheck) parts.push('Проверка');
+    else if (step === 'scan' || /Scanning/i.test(prog) || meta.items) parts.push('Сканирование');
+    else parts.push('Идёт поиск');
+    if (isBench) {
+      const w = prog.match(/\bw=(\d+)/);
+      if (w) parts.push(w[1] + ' потоков');
+      const rec = prog.match(/-w (\d+)/) || prog.match(/Рекомендуется потоков:\s*(\d+)/i);
+      if (rec) parts.push('рекомендуется ' + rec[1]);
+    } else if (isCheck) {
+      const ok = Number(liveJob && liveJob.check_ok) || 0;
+      const fail = Number(liveJob && liveJob.check_fail) || 0;
+      const bar = prog.match(/\[(\d+)\/(\d+)\]/);
+      if (bar) parts.push(bar[1] + '/' + bar[2]);
+      if (ok || fail) parts.push('успешно ' + ok + ' · не прошли ' + fail);
+      const loaded = prog.match(/check loaded (\d+)/i);
+      if (loaded && !bar) parts.push('из ' + loaded[1]);
+      const nowOk = prog.match(/OK median\s+([^,]+)(?:,\s*([0-9.]+)\s*KB\/s)?/i);
+      if (nowOk) {
+        parts.push('OK ' + nowOk[1].trim() + (nowOk[2] ? ', ' + nowOk[2] + ' KB/s' : ''));
+      } else {
+        const nowFail = prog.match(/FAIL\s+(\d+\/\d+)\s*(.*)/i);
+        if (nowFail) {
+          const why = (nowFail[2] || '').trim();
+          parts.push('FAIL ' + nowFail[1] + (why ? ' ' + why : ''));
+        }
+      }
+      const sum = prog.match(/working:\s*(\d+)/i);
+      if (sum && !ok && !fail) parts.push('рабочих ' + sum[1]);
+    } else {
+      const proto = ((prog.match(/Scanning\s+(\S+)/i) || [])[1]) || meta.proto;
+      if (proto) parts.push(proto);
+      if (meta.done && meta.items) parts.push(meta.done + '/' + meta.items);
+      else if (meta.items) parts.push(meta.items + ' шт.');
+      const rate = (meta.rate || '').split(',')[0].trim();
+      const eta = ((meta.rate || '').match(/ETA\s+\S+/i) || [])[0];
+      if (rate) parts.push(rate);
+      if (eta) parts.push(eta);
+      const avail = Number(liveJob && liveJob.avail);
+      if (avail) parts.push('рабочих ' + avail);
+    }
     parts.push(formatElapsed(jobElapsedSec(liveJob)));
     text.textContent = parts.join(' · ');
   }
@@ -519,8 +619,8 @@
     }
     if (log != null) liveLog = log;
     renderSearchLive();
-    if (liveTimer || !jobSearching(liveJob)) return;
-    liveTimer = setInterval(renderSearchLive, 1000);
+    if (liveTimer || !jobSearching(liveJob) && !searchWatch) return;
+    liveTimer = setInterval(renderSearchLive, 400);
   }
 
   function stopLiveTick() {
@@ -551,6 +651,8 @@
     renderOverview(d);
     renderStrategies(d);
     fillBcwForm(d);
+    if (jobSearching(d && d.job) && isBenchJob(d.job)) renderBenchHint(null, true);
+    else renderBenchHint(d && d.bcw && d.bcw.benchmark);
     fillEmbedTargets(d);
     fillSavedReports(d);
     syncEmbedMode();
@@ -558,8 +660,14 @@
     renderBcwMissing(d);
     renderLog(d && d.log);
     const running = jobSearching(d && d.job);
-    showSearchProgress(running);
-    if (running) startLiveTick(d && d.job, d && d.log);
+    const phase = d && d.job && d.job.phase;
+    if (running) searchWatch = true;
+    if (!running && (phase === 'done' || phase === 'stopped' || phase === 'error' || phase === 'idle')) {
+      searchWatch = false;
+    }
+    const live = running || searchWatch;
+    showSearchProgress(live);
+    if (live) startLiveTick(d && d.job, d && d.log);
     else stopLiveTick();
     if (running) {
       if (!resultItems.length) renderResultsPending();
@@ -568,9 +676,12 @@
       if (sel && sel.value !== selectedStamp) sel.value = selectedStamp;
     } else if (d && d.results && d.results[0] && d.results[0].stamp) {
       loadReport(d.results[0].stamp);
+    } else if (!resultItems.length) {
+      const el = document.getElementById('z2-bcw-results');
+      if (el) el.innerHTML = '';
     }
     if (running) startPoll();
-    else stopPoll();
+    else if (!live) stopPoll();
     if (d && d.slottest && d.slottest.running) startSlotPoll();
     else stopSlotPoll();
   }
@@ -668,17 +779,27 @@
   }
 
   function collectBcw() {
+    const takeEl = document.getElementById('z2-bcw-take');
+    let take = Number(takeEl && takeEl.value);
+    if (!isFinite(take) || take < 0) take = 100;
+    if (take > 100) take = 100;
+    take = Math.floor(take);
     return {
       domains: (document.getElementById('z2-bcw-domains') || {}).value || 'rutracker.org',
       workers: Number((document.getElementById('z2-bcw-workers') || {}).value || 128),
       proto: (document.getElementById('z2-bcw-proto') || {}).value || 'tls12',
       dns: (document.getElementById('z2-bcw-dns') || {}).value || 'auto',
-      timeout: Number((document.getElementById('z2-bcw-timeout') || {}).value || 600)
+      timeout: Number((document.getElementById('z2-bcw-timeout') || {}).value || 600),
+      take: take
     };
   }
 
   async function startBcw(mode) {
     if (busy) return;
+    if (searchInFlight()) {
+      showError('Сначала дождитесь окончания текущего запуска');
+      return;
+    }
     if (!data || !data.blockcheckw || !data.blockcheckw.installed) {
       showError('blockcheckw не установлен на роутере');
       return;
@@ -688,12 +809,14 @@
     renderResultsPending();
     renderLog('');
     showSearchProgress(true);
-    startLiveTick({ running: true, phase: 'starting', started_at: Math.floor(Date.now() / 1000) }, '');
+    searchWatch = true;
+    startLiveTick({ running: true, phase: 'starting', mode: mode, started_at: Math.floor(Date.now() / 1000) }, '');
     try {
       const extra = Object.assign({ mode: mode }, collectBcw());
       extra.value = mode;
       const res = await apiApply('bcw-start', extra);
       if (!res.ok) {
+        searchWatch = false;
         showSearchProgress(false);
         stopLiveTick();
         showError(res.error || 'Не удалось запустить поиск');
@@ -703,8 +826,54 @@
       applyData(res.data);
       startPoll();
     } catch (e) {
+      searchWatch = false;
       showSearchProgress(false);
       stopLiveTick();
+      showError('Ошибка сети: ' + e.message);
+      showStatus('');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function startBench() {
+    if (busy) return;
+    if (searchInFlight()) {
+      showError('Сначала дождитесь окончания текущего запуска');
+      return;
+    }
+    if (!data || !data.blockcheckw || !data.blockcheckw.installed) {
+      showError('blockcheckw не установлен на роутере');
+      return;
+    }
+    busy = true;
+    showError('');
+    showStatus('Benchmark потоков…', 'info', { progress: true, title: 'blockcheckw' });
+    renderLog('');
+    renderBenchHint(null, true);
+    searchWatch = true;
+    startLiveTick({ running: true, phase: 'starting', mode: 'benchmark', started_at: Math.floor(Date.now() / 1000) }, '');
+    showSearchProgress(true);
+    try {
+      const extra = Object.assign({ mode: 'benchmark' }, collectBcw());
+      extra.value = 'benchmark';
+      const res = await apiApply('bcw-start', extra);
+      if (!res.ok) {
+        searchWatch = false;
+        showSearchProgress(false);
+        stopLiveTick();
+        renderBenchHint(data && data.bcw && data.bcw.benchmark);
+        showError(res.error || 'Не удалось запустить benchmark');
+        showStatus('');
+        return;
+      }
+      applyData(res.data);
+      startPoll();
+    } catch (e) {
+      searchWatch = false;
+      showSearchProgress(false);
+      stopLiveTick();
+      renderBenchHint(data && data.bcw && data.bcw.benchmark);
       showError('Ошибка сети: ' + e.message);
       showStatus('');
     } finally {
@@ -784,33 +953,45 @@
   function startPoll() {
     if (pollTimer) return;
     pollTimer = setInterval(async function () {
+      if (pollBusy) return;
+      pollBusy = true;
       try {
         const res = await apiGet('bcw-status');
         if (!res.ok || !res.data) return;
         const job = res.data.job || {};
         renderLog(res.data.log || '');
-        showSearchProgress(jobSearching(job));
-        if (jobSearching(job)) startLiveTick(job, res.data.log || '');
-        else stopLiveTick();
-        if (job.results) {
+        const ended = !job.running && (job.phase === 'done' || job.phase === 'stopped' || job.phase === 'error');
+        const live = jobSearching(job) || (searchWatch && !ended);
+        showSearchProgress(live);
+        if (live) startLiveTick(job, res.data.log || '');
+        if (job.results && !isBenchJob(job)) {
           const stamp = (job.results.split('/').pop() || '').replace(/\.json$/, '');
           if (stamp) {
             try { await loadReport(stamp); } catch (e) { /* ignore */ }
           }
         }
-        if (!job.running && job.phase !== 'running') {
+        if (isBenchJob(job)) {
+          if (live) renderBenchHint(null, true);
+          else renderBenchHint(job.benchmark);
+        }
+        if (ended) {
+          searchWatch = false;
           showSearchProgress(false);
           stopPoll();
-          if (job.phase === 'error' || job.phase === 'starting') {
-            showError(job.error || 'Поиск не запустился');
+          if (job.phase === 'error') {
+            showError(job.error || (isBenchJob(job) ? 'Benchmark не запустился' : 'Поиск не запустился'));
             showStatus('');
           } else {
-            showStatus(job.phase === 'stopped' ? 'Поиск остановлен' : 'Поиск завершён', 'success');
+            const doneMsg = isBenchJob(job)
+              ? (job.phase === 'stopped' ? 'Benchmark остановлен' : 'Benchmark завершён')
+              : (job.phase === 'stopped' ? 'Поиск остановлен' : 'Поиск завершён');
+            showStatus(doneMsg, 'success');
           }
           refresh({ silent: true });
         }
-      } catch (e) { /* ignore poll errors */ }
-    }, 2000);
+      } catch (e) { /* keep last progress if CGI is busy */ }
+      finally { pollBusy = false; }
+    }, 400);
   }
 
   function currentDisabled(name) {
@@ -832,6 +1013,9 @@
 
   function hideModal() {
     if (!overlay) return;
+    if (searchInFlight()) {
+      if (!confirm('Поиск стратегий ещё идёт. Закрыть окно?\n\nНа роутере поиск не остановится — его можно снова открыть в Zapret2.')) return;
+    }
     overlay.hidden = true;
     document.body.classList.remove('modal-open');
     stopPoll();
@@ -864,6 +1048,7 @@
         if (e.target === overlay) hideModal();
       });
     }
+    window.addEventListener('beforeunload', onSearchLeave);
     tabs.forEach(function (tab) {
       tab.addEventListener('click', function () { switchTab(tab.dataset.tab); });
     });
@@ -927,6 +1112,7 @@
     });
 
     let slotDrag = null;
+    let profileDrag = null;
     let suppressSlotClick = false;
 
     function slotOrderFromGrid(grid) {
@@ -935,9 +1121,31 @@
       });
     }
 
+    function profileOrderFromList(root) {
+      return Array.prototype.map.call(root.querySelectorAll('[data-profile]'), function (el) {
+        return el.getAttribute('data-profile');
+      }).filter(Boolean);
+    }
+
     strat.addEventListener('pointerdown', function (e) {
       if (e.button && e.button !== 0) return;
       if (busy) return;
+      const handle = e.target.closest('[data-z2-profile-drag]');
+      if (handle) {
+        const card = handle.closest('[data-profile]');
+        if (!card || !strat.querySelectorAll('[data-profile]').length || strat.querySelectorAll('[data-profile]').length < 2) return;
+        e.preventDefault();
+        profileDrag = {
+          card: card,
+          handle: handle,
+          pid: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          dragging: false,
+          moved: false
+        };
+        return;
+      }
       if (data && data.slottest && data.slottest.running) return;
       const slot = e.target.closest('[data-z2-slot]');
       if (!slot) return;
@@ -956,6 +1164,27 @@
     });
 
     window.addEventListener('pointermove', function (e) {
+      if (profileDrag) {
+        const d = profileDrag;
+        const dx = e.clientX - d.startX;
+        const dy = e.clientY - d.startY;
+        if (!d.dragging) {
+          if ((dx * dx + dy * dy) < 64) return;
+          d.dragging = true;
+          d.moved = true;
+          d.card.classList.add('z2-profile-dragging');
+          strat.classList.add('z2-profiles-sorting');
+          try { d.handle.setPointerCapture(d.pid); } catch (err) { /* ignore */ }
+        }
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const over = el && el.closest ? el.closest('[data-profile]') : null;
+        if (!over || over === d.card || !strat.contains(over)) return;
+        const rect = over.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < (rect.height / 2);
+        if (before) strat.insertBefore(d.card, over);
+        else strat.insertBefore(d.card, over.nextSibling);
+        return;
+      }
       if (!slotDrag) return;
       const d = slotDrag;
       const dx = e.clientX - d.startX;
@@ -978,6 +1207,19 @@
     });
 
     window.addEventListener('pointerup', function () {
+      if (profileDrag) {
+        const d = profileDrag;
+        profileDrag = null;
+        d.card.classList.remove('z2-profile-dragging');
+        strat.classList.remove('z2-profiles-sorting');
+        try { d.handle.releasePointerCapture(d.pid); } catch (err) { /* ignore */ }
+        if (!d.moved) return;
+        const order = profileOrderFromList(strat);
+        const prev = ((data && data.profiles) || []).filter(function (p) { return !isGamesProfile(p); }).map(function (p) { return p.name; });
+        if (order.join('\n') === prev.join('\n')) return;
+        run('profile-reorder', { order: order }, 'Порядок профилей');
+        return;
+      }
       if (!slotDrag) return;
       const d = slotDrag;
       slotDrag = null;
@@ -993,6 +1235,11 @@
       run('circular-reorder', { name: d.name, order: order }, 'Порядок ' + d.name);
     });
     window.addEventListener('pointercancel', function () {
+      if (profileDrag) {
+        profileDrag.card.classList.remove('z2-profile-dragging');
+        strat.classList.remove('z2-profiles-sorting');
+        profileDrag = null;
+      }
       if (!slotDrag) return;
       slotDrag.slot.classList.remove('z2-slot-dragging');
       slotDrag.grid.classList.remove('z2-sorting');
@@ -1005,14 +1252,34 @@
         if (savedSel.value) loadReport(savedSel.value);
       });
     }
+    bind('z2-bcw-bench', function () { startBench(); });
     bind('z2-bcw-quick', function () { startBcw('quick'); });
     bind('z2-bcw-full', function () { startBcw('full'); });
     bind('z2-bcw-univ', function () { startBcw('universal'); });
     bind('z2-bcw-stop', function () { run('bcw-stop', {}, 'Остановка поиска'); });
+    bind('z2-bcw-clear', function () {
+      if (busy) return;
+      if (!((data && data.results) || []).length) return;
+      if (!confirm('Удалить все сохранённые отчёты поиска?')) return;
+      selectedStamp = '';
+      resultItems = [];
+      run('bcw-clear', {}, 'Очистка отчётов');
+    });
 
     const modeSel = document.getElementById('z2-embed-mode');
     if (modeSel) modeSel.addEventListener('change', syncEmbedMode);
     syncEmbedMode();
+    function pickRandomArgs(list, n) {
+      const copy = list.slice();
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = copy[i];
+        copy[i] = copy[j];
+        copy[j] = t;
+      }
+      return copy.slice(0, n);
+    }
+
     function embedFromSearch(all) {
       const mode = (document.getElementById('z2-embed-mode') || {}).value || 'circular-front';
       const name = ((document.getElementById('z2-embed-name') || {}).value || '').trim();
@@ -1028,6 +1295,13 @@
         if (!args.length) {
           showError('Нет найденных стратегий');
           return;
+        }
+        if (args.length > 20) {
+          const first = confirm(
+            'В списке ' + args.length + ' стратегий. За один раз вставляется не больше 20.\n\n' +
+            'ОК — первые 20.\nОтмена — случайные 20 из списка.'
+          );
+          args = first ? args.slice(0, 20) : pickRandomArgs(args, 20);
         }
         if (mode !== 'new') {
           replace = confirm('Заменить все стратегии в профиле?\n\nОК — заменить текущие слоты.\nОтмена — добавить к имеющимся.');
@@ -1070,7 +1344,6 @@
       if (!btn) return;
       const v = btn.dataset.z2System;
       if (v === 'bcw-install') return startBcwInstall();
-      if (v === 'reload-lists') return run('reload-lists', {}, 'Reload lists');
       if (v.indexOf('backup-') === 0) return run('backup', { value: v.replace('backup-', '') }, 'Бэкап');
     });
   }

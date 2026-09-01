@@ -48,7 +48,7 @@ def run_cmd(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tup
 
 def _normalize_router_text(data: bytes, local: Path, remote: str) -> bytes:
     name = local.name
-    if name.endswith(".sh") or "/cgi-bin/" in remote.replace("\\", "/") or remote.endswith("/cgi-bin/" + name):
+    if name.endswith((".sh", ".lua")) or "/cgi-bin/" in remote.replace("\\", "/") or remote.endswith("/cgi-bin/" + name):
         return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     return data
 
