@@ -256,7 +256,6 @@ api_status() {
 		--argjson block_tgweb "$(block_active "$TGWeb" && echo 1 || echo 0)" \
 		--argjson block_spotify "$(block_active "$SPFY" && echo 1 || echo 0)" \
 		--argjson block_supercell "$(block_active "$SCell" && echo 1 || echo 0)" \
-		--argjson block_github "$(block_active "$GITH" && echo 1 || echo 0)" \
 		--argjson test_versions "$([ -s "$RES2" ] && echo 1 || echo 0)" \
 		--argjson test_domain "$([ -s "$RES_DOMAIN" ] && echo 1 || echo 0)" \
 		--argjson xtreme "$(gv_xtreme_active && echo 1 || echo 0)" \
@@ -283,7 +282,7 @@ api_status() {
 				nalog: ($block_nalog == 1), rutor: ($block_rutor == 1), ntc: ($block_ntc == 1),
 				instagram: ($block_instagram == 1), librusec: ($block_librusec == 1), ai: ($block_ai == 1),
 				twitch: ($block_twitch == 1), tgweb: ($block_tgweb == 1), spotify: ($block_spotify == 1),
-				supercell: ($block_supercell == 1), github: ($block_github == 1)
+				supercell: ($block_supercell == 1)
 			},
 			discord_script: $discord_script,
 			finland_ips: ($finland == 1),
@@ -414,7 +413,6 @@ api_apply_hosts_only() {
 				tgweb) zapret_exec toggle_block "$TGWeb" ;;
 				spotify) zapret_exec toggle_block "$SPFY" ;;
 				supercell) zapret_exec toggle_block "$SCell" ;;
-				github) zapret_exec toggle_block "$GITH" ;;
 				all) zapret_exec toggle_all ;;
 				geohide) zapret_exec add_GEO_HOSTS ;;
 				mafioznik)
@@ -558,7 +556,6 @@ api_apply() {
 				tgweb) zapret_exec toggle_block "$TGWeb" ;;
 				spotify) zapret_exec toggle_block "$SPFY" ;;
 				supercell) zapret_exec toggle_block "$SCell" ;;
-				github) zapret_exec toggle_block "$GITH" ;;
 				all) zapret_exec toggle_all ;;
 				geohide) zapret_exec add_GEO_HOSTS ;;
 				mafioznik)

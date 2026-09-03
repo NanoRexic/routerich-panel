@@ -130,6 +130,9 @@ generate_random_endpoint() {
 	fi
 }
 
+WARPGEN_PAGE='https://generator-warp.github.io'
+WARPGEN_PAGE_SLASH='https://generator-warp.github.io/'
+
 _warpgen_curl_once() {
 	url="$1"
 	origin="$2"
@@ -138,6 +141,7 @@ _warpgen_curl_once() {
 	response=$(curl -L --connect-timeout 20 --max-time 60 -sS -w "%{http_code}" \
 		"$url" \
 		-H 'Accept: application/json, */*' \
+		-H 'X-Client: WARP' \
 		-H "Origin: $origin" \
 		-H "Referer: $referer" \
 		-H "User-Agent: $UA" 2>/dev/null) || return 1
@@ -173,9 +177,36 @@ warpgen_fetch_one() {
 
 warpgen_fetch_json() {
 	if json_body=$(warpgen_fetch_one \
+		'https://www.warp-generator.workers.dev' \
+		"$WARPGEN_PAGE" \
+		"$WARPGEN_PAGE_SLASH" 2>/dev/null); then
+		WARPGEN_SOURCE='warp-generator.workers.dev'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
+		'https://warp-gen.netlify.app/' \
+		"$WARPGEN_PAGE" \
+		"$WARPGEN_PAGE_SLASH" 2>/dev/null); then
+		WARPGEN_SOURCE='warp-gen.netlify.app'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
+		'https://warp.sub-aggregator.workers.dev' \
+		"$WARPGEN_PAGE" \
+		"$WARPGEN_PAGE_SLASH" 2>/dev/null); then
+		WARPGEN_SOURCE='warp.sub-aggregator.workers.dev'
+		printf '%s' "$json_body"
+		return 0
+	fi
+
+	if json_body=$(warpgen_fetch_one \
 		'https://warp-vercel-chi.vercel.app/api/warp-data' \
-		'https://warp-gen.github.io' \
-		'https://warp-gen.github.io/' 2>/dev/null); then
+		"$WARPGEN_PAGE" \
+		"$WARPGEN_PAGE_SLASH" 2>/dev/null); then
 		WARPGEN_SOURCE='warp-vercel-chi.vercel.app'
 		printf '%s' "$json_body"
 		return 0
@@ -183,8 +214,8 @@ warpgen_fetch_json() {
 
 	if json_body=$(warpgen_fetch_one \
 		'https://warp-vercel-murex.vercel.app/api/warp-data' \
-		'https://warp-gen.github.io' \
-		'https://warp-gen.github.io/' 2>/dev/null); then
+		"$WARPGEN_PAGE" \
+		"$WARPGEN_PAGE_SLASH" 2>/dev/null); then
 		WARPGEN_SOURCE='warp-vercel-murex.vercel.app'
 		printf '%s' "$json_body"
 		return 0
@@ -192,27 +223,9 @@ warpgen_fetch_json() {
 
 	if json_body=$(warpgen_fetch_one \
 		'https://generator-config-warp.vercel.app/api/warp-data' \
-		'https://warp-gen.github.io' \
-		'https://warp-gen.github.io/' 2>/dev/null); then
+		'https://generator-config-warp.vercel.app' \
+		'https://generator-config-warp.vercel.app/' 2>/dev/null); then
 		WARPGEN_SOURCE='generator-config-warp.vercel.app'
-		printf '%s' "$json_body"
-		return 0
-	fi
-
-	if json_body=$(warpgen_fetch_one \
-		'https://www.warp-generator.workers.dev' \
-		'https://warp-gen.github.io' \
-		'https://warp-gen.github.io/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp-generator.workers.dev'
-		printf '%s' "$json_body"
-		return 0
-	fi
-
-	if json_body=$(warpgen_fetch_one \
-		'https://warp.sub-aggregator.workers.dev' \
-		'https://warp-gen.github.io' \
-		'https://warp-gen.github.io/' 2>/dev/null); then
-		WARPGEN_SOURCE='warp.sub-aggregator.workers.dev'
 		printf '%s' "$json_body"
 		return 0
 	fi
@@ -277,7 +290,7 @@ try_generate_warpgen() {
 	json_body=$(warpgen_fetch_json 2>/dev/null) || return 1
 
 	clear_saved_configs
-	source_name="${WARPGEN_SOURCE:-warp-gen.github.io}"
+	source_name="${WARPGEN_SOURCE:-generator-warp.github.io}"
 
 	for variant in 1 2 3; do
 		config=$(build_warpgen_config "$json_body" "$variant" 2>/dev/null) || return 1
@@ -315,7 +328,7 @@ GENERATED_CONFIG=""
 GENERATED_SOURCE=""
 
 if ! try_generate_warpgen; then
-	json_error "Не удалось получить конфиг WARP (warp-gen.github.io / vercel-зеркала). Попробуйте позже или вставьте .conf вручную."
+	json_error "Не удалось получить конфиг WARP (generator-warp.github.io / зеркала). Попробуйте позже или вставьте .conf вручную."
 	exit 0
 fi
 
