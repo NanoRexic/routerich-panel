@@ -103,31 +103,217 @@ json_out_variants() {
 		}'
 }
 
-random_pick() {
-	set -- $1
-	n=$#
+WARP_EP_FILE='/etc/routerich-panel/warp-endpoints.json'
+WARP_EP_URL='https://help-guide.notion.site/Cloudflare-WARP-1f82684dab0d8024a1c8fec230f5e4e1'
+WARP_EP_TTL=604800
+
+warp_ep_excluded_prefix() {
+	case "$1" in
+		162.159.193.*|162.159.197.*|162.159.198.*|162.159.199.*) return 0 ;;
+	esac
+	return 1
+}
+
+warp_ep_file_ok() {
+	[ -s "$WARP_EP_FILE" ] || return 1
+	[ "$(jq -r '.prefixes | length' "$WARP_EP_FILE" 2>/dev/null)" -ge 8 ] 2>/dev/null || return 1
+	[ "$(jq -r '.ports | length' "$WARP_EP_FILE" 2>/dev/null)" -ge 20 ] 2>/dev/null || return 1
+}
+
+random_pick_lines() {
+	n=0
+	while IFS= read -r _l; do
+		[ -n "$_l" ] || continue
+		n=$((n + 1))
+	done <<EOF
+$1
+EOF
 	[ "$n" -gt 0 ] || return 1
 	idx=$((RANDOM % n))
-	i=1
-	for item in "$@"; do
-		[ "$i" -eq "$((idx + 1))" ] && { echo "$item"; return 0; }
+	i=0
+	while IFS= read -r item; do
+		[ -n "$item" ] || continue
+		[ "$i" -eq "$idx" ] && { printf '%s' "$item"; return 0; }
 		i=$((i + 1))
-	done
+	done <<EOF
+$1
+EOF
+	return 1
 }
 
 generate_random_endpoint() {
-	ports='500 854 859 864 878 880 890 891 894 903 908 928 934 939 942 943 945 946 955 968 987 988 1002 1010 1014 1018 1070 1074 1180 1387 1701 1843 2371 2408 2506 3138 3476 3581 3854 4177 4198 4233 4500 5279 5956 7103 7152 7156 7281 7559 8319 8742 8854 8886'
-	prefixes='162.159.192. 162.159.195. engage.cloudflareclient.com 8.6.112. 8.34.70. 8.34.146. 8.35.211. 8.39.125. 8.39.204. 8.39.214. 8.47.69. 188.114.96. 188.114.97. 188.114.98.'
-
-	port=$(random_pick "$ports") || return 1
-	prefix=$(random_pick "$prefixes") || return 1
-
-	if [ "$prefix" = 'engage.cloudflareclient.com' ]; then
-		echo "${prefix}:${port}"
-	else
-		num=$(( (RANDOM % 10) + 1 ))
-		echo "${prefix}${num}:${port}"
+	prefixes=$(jq -r '.prefixes[]' "$WARP_EP_FILE" 2>/dev/null)
+	ports=$(jq -r '.ports[]' "$WARP_EP_FILE" 2>/dev/null)
+	if [ -z "$prefixes" ] || [ -z "$ports" ]; then
+		prefixes='engage.cloudflareclient.com
+162.159.192.
+162.159.195.
+8.6.112.
+8.34.70.
+8.34.146.
+8.35.211.
+8.39.125.
+8.39.204.
+8.39.214.
+8.47.69.
+188.114.96.
+188.114.97.
+188.114.98.
+188.114.99.'
+		ports='500
+854
+859
+864
+878
+880
+890
+891
+894
+903
+908
+928
+934
+939
+942
+943
+945
+946
+955
+968
+987
+988
+1002
+1010
+1014
+1018
+1070
+1074
+1180
+1387
+1701
+1843
+2371
+2408
+2506
+3138
+3476
+3581
+3854
+4177
+4198
+4233
+4500
+5279
+5956
+7103
+7152
+7156
+7281
+7559
+8319
+8742
+8854
+8886'
 	fi
+	prefix=$(random_pick_lines "$prefixes") || return 1
+	port=$(random_pick_lines "$ports") || return 1
+	omin=$(jq -r '.octet_min // 0' "$WARP_EP_FILE" 2>/dev/null)
+	omax=$(jq -r '.octet_max // 255' "$WARP_EP_FILE" 2>/dev/null)
+	case "$omin" in ''|*[!0-9]*) omin=0 ;; esac
+	case "$omax" in ''|*[!0-9]*) omax=255 ;; esac
+	[ "$omax" -ge "$omin" ] || omax=$omin
+	case "$prefix" in
+		*[0-9].)
+			span=$((omax - omin + 1))
+			oct=$((omin + (RANDOM % span)))
+			printf '%s%s:%s' "$prefix" "$oct" "$port"
+			;;
+		*)
+			printf '%s:%s' "$prefix" "$port"
+			;;
+	esac
+}
+
+warp_ep_parse_html() {
+	html="$1"
+	prefs=$(printf '%s' "$html" | grep -oE 'engage\.cloudflareclient\.com|([0-9]{1,3}\.){3}' | while IFS= read -r p; do
+		warp_ep_excluded_prefix "$p" && continue
+		printf '%s\n' "$p"
+	done | sort -u)
+	pc=$(printf '%s\n' "$prefs" | grep -c .)
+	[ "$pc" -ge 8 ] || return 1
+	ports_line=$(printf '%s' "$html" | tr '\n' ' ' | grep -oE '500,[[:space:]]*854[,0-9[:space:]]{20,}8886')
+	if [ -n "$ports_line" ]; then
+		ports=$(printf '%s' "$ports_line" | grep -oE '[0-9]+' | sort -n -u)
+	else
+		ports=$(jq -r '.ports[]' "$WARP_EP_FILE" 2>/dev/null)
+	fi
+	ptc=$(printf '%s\n' "$ports" | grep -c .)
+	[ "$ptc" -ge 20 ] || return 1
+	WARP_EP_PARSED_PREFIXES="$prefs"
+	WARP_EP_PARSED_PORTS="$ports"
+	return 0
+}
+
+warp_ep_refresh() {
+	html=$(curl -fsSL --connect-timeout 10 --max-time 20 -A "$UA" "$WARP_EP_URL" 2>/dev/null) || return 1
+	warp_ep_parse_html "$html" || return 1
+	now=$(date +%s)
+	pref_json=$(printf '%s\n' "$WARP_EP_PARSED_PREFIXES" | jq -R -s 'split("\n") | map(select(length>0))')
+	port_json=$(printf '%s\n' "$WARP_EP_PARSED_PORTS" | jq -R -s 'split("\n") | map(select(length>0) | tonumber)')
+	tmp="$WARP_EP_FILE.tmp.$$"
+	jq -n \
+		--arg source "$WARP_EP_URL" \
+		--argjson checked "$now" \
+		--argjson prefixes "$pref_json" \
+		--argjson ports "$port_json" \
+		'{source:$source,checked_at:$checked,octet_min:0,octet_max:255,prefixes:$prefixes,ports:$ports}' \
+		> "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+	jq -e '.prefixes | length >= 8' "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; return 1; }
+	mv "$tmp" "$WARP_EP_FILE"
+}
+
+warp_ep_touch_checked() {
+	now=$(date +%s)
+	[ -f "$WARP_EP_FILE" ] || return 0
+	tmp="$WARP_EP_FILE.tmp.$$"
+	jq --argjson checked "$now" '.checked_at=$checked' "$WARP_EP_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$WARP_EP_FILE" || rm -f "$tmp"
+}
+
+warp_ep_maybe_refresh() {
+	now=$(date +%s)
+	last=$(jq -r '.checked_at // 0' "$WARP_EP_FILE" 2>/dev/null)
+	case "$last" in ''|*[!0-9]*) last=0 ;; esac
+	[ $((now - last)) -ge "$WARP_EP_TTL" ] || return 0
+	mkdir /tmp/warp-ep-refresh.lock 2>/dev/null || return 0
+	(
+		trap 'rmdir /tmp/warp-ep-refresh.lock 2>/dev/null' EXIT INT TERM
+		if warp_ep_refresh; then
+			:
+		else
+			warp_ep_touch_checked
+		fi
+	) </dev/null >/dev/null 2>&1 &
+}
+
+warp_cf_register() {
+	command -v awg >/dev/null 2>&1 || return 1
+	priv=$(awg genkey 2>/dev/null) || return 1
+	pub=$(printf '%s' "$priv" | awg pubkey 2>/dev/null) || return 1
+	tos=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+	body=$(jq -n --arg key "$pub" --arg tos "$tos" \
+		'{key:$key,install_id:"",fcm_token:"",tos:$tos,model:"PC",locale:"en_US"}') || return 1
+	resp=$(curl -sS --connect-timeout 15 --max-time 30 -X POST \
+		'https://api.cloudflareclient.com/v0a1922/reg' \
+		-H 'Content-Type: application/json' \
+		-H 'User-Agent: okhttp/3.12.1' \
+		--data-binary "$body" 2>/dev/null) || return 1
+	peer=$(printf '%s' "$resp" | jq -r '.config.peers[0].public_key // empty')
+	ipv4=$(printf '%s' "$resp" | jq -r '.config.interface.addresses.v4 // empty')
+	ipv4=${ipv4%%/*}
+	[ -n "$priv" ] && [ -n "$peer" ] && [ -n "$ipv4" ] || return 1
+	jq -n --arg privKey "$priv" --arg peer_pub "$peer" --arg client_ipv4 "$ipv4" \
+		'{privKey:$privKey,peer_pub:$peer_pub,client_ipv4:$client_ipv4}'
 }
 
 WARPGEN_PAGE='https://generator-warp.github.io'
@@ -287,10 +473,16 @@ EOF
 
 try_generate_warpgen() {
 	WARPGEN_SOURCE=""
-	json_body=$(warpgen_fetch_json 2>/dev/null) || return 1
+	warp_ep_maybe_refresh
+	json_body=$(warp_cf_register 2>/dev/null)
+	if [ -n "$json_body" ]; then
+		source_name='cloudflare'
+	else
+		json_body=$(warpgen_fetch_json 2>/dev/null) || return 1
+		source_name="${WARPGEN_SOURCE:-generator-warp.github.io}"
+	fi
 
 	clear_saved_configs
-	source_name="${WARPGEN_SOURCE:-generator-warp.github.io}"
 
 	for variant in 1 2 3; do
 		config=$(build_warpgen_config "$json_body" "$variant" 2>/dev/null) || return 1
@@ -305,6 +497,28 @@ try_generate_warpgen() {
 	GENERATED_SOURCE="$source_name"
 	return 0
 }
+
+get_query_param() {
+	param="$1"
+	default="$2"
+	value=""
+	if [ -n "$QUERY_STRING" ]; then
+		case "$QUERY_STRING" in
+			*${param}=*)
+				value="${QUERY_STRING#*${param}=}"
+				value="${value%%&*}"
+				;;
+		esac
+	fi
+	if [ -n "$value" ]; then
+		printf '%s' "$value"
+	else
+		printf '%s' "$default"
+	fi
+}
+
+WS_LIB="/etc/routerich-panel/warpscout.sh"
+[ -f "$WS_LIB" ] && . "$WS_LIB"
 
 echo "Content-Type: application/json"
 echo ""
@@ -327,8 +541,18 @@ fi
 GENERATED_CONFIG=""
 GENERATED_SOURCE=""
 
+mode=$(get_query_param mode "")
+if [ "$mode" = "scout" ]; then
+	if [ -f "$WS_LIB" ]; then
+		ws_cgi
+		exit 0
+	fi
+	json_error "WARP Scout не установлен на панели"
+	exit 0
+fi
+
 if ! try_generate_warpgen; then
-	json_error "Не удалось получить конфиг WARP (generator-warp.github.io / зеркала). Попробуйте позже или вставьте .conf вручную."
+	json_error "Не удалось получить конфиг WARP. Попробуйте позже или вставьте .conf вручную."
 	exit 0
 fi
 

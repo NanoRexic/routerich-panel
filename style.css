@@ -472,7 +472,7 @@ body.modal-open {
 
   -webkit-overflow-scrolling: touch;
 
-  overflow-y: auto;
+  overflow: hidden;
 
 }
 
@@ -498,8 +498,20 @@ body.modal-open {
 
   max-width: 560px;
 
+  max-height: 94vh;
+
+  display: flex;
+
+  flex-direction: column;
+
+  overflow: hidden;
+
   box-shadow: none;
 
+}
+
+.modal.has-scout {
+  max-width: 960px;
 }
 
 
@@ -508,13 +520,19 @@ body.modal-open {
 
   display: flex;
 
-  align-items: flex-start;
+  flex-direction: column;
 
-  justify-content: space-between;
+  align-items: stretch;
 
-  gap: 16px;
+  gap: 12px;
 
-  padding: 20px 20px 0;
+  padding: 20px 20px 12px;
+
+  flex-shrink: 0;
+
+  background: var(--bg-card);
+
+  z-index: 3;
 
 }
 
@@ -528,8 +546,6 @@ body.modal-open {
 
   line-height: 1.4;
 
-  flex: 1;
-
 }
 
 
@@ -542,7 +558,7 @@ body.modal-open {
 
   gap: 8px;
 
-  flex-shrink: 0;
+  justify-content: flex-end;
 
 }
 
@@ -590,6 +606,8 @@ body.modal-open {
 
   line-height: 1.4;
 
+  flex-shrink: 0;
+
 }
 
 
@@ -630,6 +648,8 @@ body.modal-open {
 
   padding: 12px 20px 0;
 
+  flex-shrink: 0;
+
 }
 
 
@@ -654,7 +674,200 @@ body.modal-open {
 
 }
 
+.scout-results {
+  padding: 4px 20px 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
 
+.scout-results[open] {
+  flex: 0 1 auto;
+  max-height: 50vh;
+}
+
+.scout-results:not([open]) > *:not(summary) {
+  display: none;
+}
+
+.scout-results[hidden] {
+  display: none;
+}
+
+.scout-spoiler-toggle {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 6px 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+
+.scout-spoiler-toggle::-webkit-details-marker,
+.scout-spoiler-toggle::marker {
+  display: none;
+  content: none;
+}
+
+.scout-spoiler-toggle::before {
+  content: '';
+  width: 0.42em;
+  height: 0.42em;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.scout-results[open] > .scout-spoiler-toggle::before {
+  transform: rotate(45deg);
+}
+
+.scout-spoiler-meta {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.scout-spoiler-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.scout-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin: 0 0 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--primary);
+}
+
+.scout-summary em {
+  color: var(--text-muted);
+  font-style: normal;
+  margin-right: 6px;
+}
+
+.scout-summary .scout-ok {
+  color: #3dd68c;
+  font-weight: 600;
+}
+
+.scout-table-title {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scout-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 160px;
+  max-height: 240px;
+  flex: 1 1 auto;
+}
+
+.scout-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.scout-table th,
+.scout-table td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.scout-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  background: var(--bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.scout-table th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.scout-table th[data-sort]:hover {
+  color: var(--primary);
+}
+
+.scout-table th[data-sort]::after {
+  content: '';
+  display: inline-block;
+  width: 0.7em;
+  margin-left: 4px;
+  opacity: 0.35;
+}
+
+.scout-table th[data-sort].sorted[data-dir="asc"]::after {
+  content: '▲';
+  opacity: 1;
+  color: var(--primary);
+}
+
+.scout-table th[data-sort].sorted[data-dir="desc"]::after {
+  content: '▼';
+  opacity: 1;
+  color: var(--primary);
+}
+
+.scout-table td.scout-metric {
+  color: #9b8cff;
+}
+
+.scout-table tbody tr {
+  cursor: pointer;
+}
+
+.scout-table tbody tr:hover {
+  background: rgba(77, 161, 192, 0.12);
+}
+
+.scout-table tbody tr.selected {
+  background: rgba(77, 161, 192, 0.22);
+}
+
+.scout-flag {
+  display: inline-block;
+  width: 18px;
+  height: 13px;
+  object-fit: cover;
+  border-radius: 2px;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+.scout-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
 
 .saved-select {
 
@@ -692,6 +905,36 @@ body.modal-open {
 
   padding: 16px 20px;
 
+  flex-shrink: 0;
+
+}
+
+.modal.has-scout .modal-body {
+  padding-top: 10px;
+  padding-bottom: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal.has-scout.scout-open #config-text {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 280px;
+  resize: none;
+}
+
+.modal.has-scout.scout-open.awg-scan #config-text {
+  min-height: 240px;
+  max-height: 38vh;
+}
+
+.modal.has-scout:not(.scout-open) #config-text {
+  flex: 1 1 auto;
+  min-height: 220px;
+  max-height: 42vh;
+  resize: vertical;
 }
 
 
@@ -710,7 +953,7 @@ body.modal-open {
 
   width: 100%;
 
-  min-height: 200px;
+  min-height: 240px;
 
   padding: 14px;
 
@@ -790,7 +1033,11 @@ body.modal-open {
 
   gap: 10px;
 
-  padding: 16px 20px 20px;
+  padding: 12px 20px 16px;
+
+  flex-shrink: 0;
+
+  background: var(--bg-card);
 
 }
 
@@ -1264,7 +1511,7 @@ body.modal-open {
 
     border-bottom: none;
 
-    max-height: 92dvh;
+    max-height: 94dvh;
 
     display: flex;
 
@@ -1317,6 +1564,28 @@ body.modal-open {
   }
 
 
+
+  .scout-table-wrap {
+    min-height: 96px;
+    max-height: min(22dvh, 160px);
+  }
+
+  .modal.has-scout.scout-open #config-text {
+    min-height: 120px;
+    max-height: 180px;
+    resize: none;
+  }
+
+  .modal.has-scout.scout-open.awg-scan #config-text {
+    min-height: 160px;
+    max-height: 28dvh;
+  }
+
+  .modal.has-scout:not(.scout-open) #config-text {
+    min-height: 180px;
+    max-height: 40dvh;
+    resize: vertical;
+  }
 
   .modal-actions .btn,
 
@@ -1372,7 +1641,7 @@ body.modal-open {
 
   #config-text {
 
-    min-height: 180px;
+    min-height: 220px;
 
     max-height: 40dvh;
 

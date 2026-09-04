@@ -104,6 +104,8 @@ else
 	deploy_file "lib/zapret2-headless.sh" "/etc/routerich-panel/zapret2-headless.sh" "755"
 	deploy_file "lib/pty-run.lua" "/etc/routerich-panel/pty-run.lua" "755"
 	deploy_file "lib/network-fallback.sh" "/etc/routerich-panel/network-fallback.sh" "755"
+	deploy_file "lib/warp-endpoints.json" "/etc/routerich-panel/warp-endpoints.json" "644"
+	deploy_file "lib/warpscout.sh" "/etc/routerich-panel/warpscout.sh" "755"
 	deploy_file "index.html" "/www/routerich-panel/index.html" "644"
 	deploy_file "notifications.js" "/www/routerich-panel/notifications.js" "644"
 	deploy_file "app.js" "/www/routerich-panel/app.js" "644"

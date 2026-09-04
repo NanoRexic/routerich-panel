@@ -59,7 +59,7 @@ def main() -> int:
     token = git_github_token()
     release_body = (
         f"## RouteRich Panel {version}\n\n"
-        "обновлён адрес загрузки warp\n\n"
+        "warp scan + LocalWARPGen\n\n"
         "### Windows-установщик\n"
         f"Скачайте **`{zip_path.name}`**, распакуйте и запустите:\n"
         "1. `1-Install-Prerequisites.bat`\n"

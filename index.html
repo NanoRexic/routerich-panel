@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.4.1">
+  <meta name="routerich-version" content="1.5">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -131,6 +131,7 @@
         <h2 id="modal-title">Вставьте, перетащите или выберите .conf файл</h2>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="btn-generate">Сгенерировать новый</button>
+          <button type="button" class="btn btn-outline" id="btn-generate-scout" title="Подобрать рабочий эндпоинт сканированием WARP Scout">Сканировать WARP</button>
           <label class="btn btn-outline browse-btn">
             Обзор...
             <input type="file" id="file-input" accept=".conf,.txt" hidden>
@@ -151,6 +152,35 @@
           <option value="">— выберите вариант —</option>
         </select>
       </div>
+
+      <details class="scout-results" id="scout-results" hidden>
+        <summary class="scout-spoiler-toggle">
+          <span class="scout-spoiler-title">Результаты сканирования</span>
+          <span class="scout-spoiler-meta" id="scout-spoiler-meta"></span>
+        </summary>
+        <div class="scout-spoiler-body">
+          <div class="scout-summary" id="scout-summary"></div>
+          <p class="scout-table-title">Best endpoint per subnet and node (lowest in-tunnel loss, then in-tunnel ping)</p>
+          <div class="scout-table-wrap">
+            <table class="scout-table" id="scout-table">
+              <thead>
+                <tr>
+                  <th>SUBNET</th>
+                  <th>ENDPOINT</th>
+                  <th data-sort="ep_ping">ENDPOINT PING</th>
+                  <th data-sort="tun_ping">TUN PING</th>
+                  <th data-sort="loss">LOSS</th>
+                  <th data-sort="seen_as">SEEN AS</th>
+                  <th data-sort="node">NODE</th>
+                  <th data-sort="location">NODE LOCATION</th>
+                </tr>
+              </thead>
+              <tbody id="scout-table-body"></tbody>
+            </table>
+          </div>
+          <p class="scout-hint">Нажмите на строку, чтобы собрать конфиг</p>
+        </div>
+      </details>
 
       <div class="modal-body" id="drop-zone">
         <textarea id="config-text" spellcheck="false" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = ...&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = host:port&#10;AllowedIPs = 0.0.0.0/0"></textarea>
