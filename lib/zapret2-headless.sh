@@ -25,8 +25,20 @@ Z2_PORTS_TCP="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,2
 Z2_XTREME_PORTS="80,88,444-65535"
 Z2_XTREME_NFQ="80,88,443-65535"
 
+z2_pkg_present() {
+	if command -v opkg >/dev/null 2>&1; then
+		[ -n "$(opkg list-installed zapret2 2>/dev/null)" ] && return 0
+		return 1
+	fi
+	if command -v apk >/dev/null 2>&1; then
+		apk info -e zapret2 >/dev/null 2>&1 && return 0
+		return 1
+	fi
+	return 1
+}
+
 z2_installed() {
-	[ -f "$Z2_INIT" ] || [ -f "$Z2_CONF" ] || [ -d /opt/zapret2 ]
+	z2_pkg_present
 }
 
 z2_running() {
@@ -983,7 +995,97 @@ z2_slot_has_fingerprint() {
 }
 
 z2_pkg_version() {
-	opkg list-installed zapret2 2>/dev/null | awk '{print $3; exit}'
+	if command -v opkg >/dev/null 2>&1; then
+		opkg list-installed zapret2 2>/dev/null | awk '{print $3; exit}'
+		return
+	fi
+	if command -v apk >/dev/null 2>&1; then
+		apk info -e -v zapret2 2>/dev/null | head -n1
+	fi
+}
+
+z2_opkg_feed_urls() {
+	grep -hE '^src/gz[[:space:]]' /etc/opkg/*.conf /etc/opkg.conf 2>/dev/null | awk '{print $2, $3}'
+}
+
+z2_fetch_packages_index() {
+	base="$1"
+	[ -n "$base" ] || return 1
+	base="${base%/}"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL --connect-timeout 6 --max-time 12 "$base/Packages.gz" 2>/dev/null | gzip -dc 2>/dev/null && return 0
+		curl -fsSL --connect-timeout 6 --max-time 12 "$base/Packages" 2>/dev/null && return 0
+		return 1
+	fi
+	if command -v wget >/dev/null 2>&1; then
+		wget -q -O - -T 12 "$base/Packages.gz" 2>/dev/null | gzip -dc 2>/dev/null && return 0
+		wget -q -O - -T 12 "$base/Packages" 2>/dev/null && return 0
+	fi
+	return 1
+}
+
+z2_versions_from_packages() {
+	awk '
+		$1=="Package:" { cur=$2; next }
+		cur=="zapret2" && $1=="Version:" { print $2; cur="" }
+	'
+}
+
+z2_pkg_available_version_fetch() {
+	best=""
+	# Prefer the custom routerich feed, then other src/gz from this OpenWrt.
+	urls=$(z2_opkg_feed_urls | awk '
+		$1=="routerich" { print 0, $2; next }
+		$2 ~ /packages\.routerich\.ru/ { print 1, $2; next }
+		{ print 2, $2 }
+	' | sort -n | awk '{print $2}')
+	for url in $urls; do
+		[ -n "$url" ] || continue
+		vers=$(z2_fetch_packages_index "$url" | z2_versions_from_packages)
+		[ -n "$vers" ] || continue
+		cand=$(printf '%s\n' "$vers" | sort -V 2>/dev/null | tail -n1)
+		[ -n "$cand" ] || cand=$(printf '%s\n' "$vers" | tail -n1)
+		if [ -z "$best" ]; then
+			best="$cand"
+		else
+			best=$(printf '%s\n%s\n' "$best" "$cand" | sort -V 2>/dev/null | tail -n1)
+			[ -n "$best" ] || best="$cand"
+		fi
+		# Custom feed already had it — enough for the install button.
+		case "$url" in */routerich) [ -n "$best" ] && break ;; esac
+	done
+	printf '%s' "$best"
+}
+
+z2_pkg_available_version_local() {
+	if command -v opkg >/dev/null 2>&1; then
+		opkg list zapret2 2>/dev/null | awk '/^zapret2 - / { print $3; exit }'
+		return
+	fi
+	if command -v apk >/dev/null 2>&1; then
+		apk search -e zapret2 2>/dev/null | awk '{print $1; exit}'
+	fi
+}
+
+z2_pkg_available_version() {
+	cache="$Z2_TMP/zapret2-avail-ver"
+	now=$(date +%s)
+	if [ -s "$cache" ]; then
+		ts=$(sed -n '1p' "$cache")
+		ver=$(sed -n '2p' "$cache")
+		case "$ts" in ''|*[!0-9]*) ts=0 ;; esac
+		if [ -n "$ver" ] && [ $((now - ts)) -lt 1800 ]; then
+			printf '%s' "$ver"
+			return 0
+		fi
+	fi
+	ver=$(z2_pkg_available_version_fetch)
+	[ -z "$ver" ] && ver=$(z2_pkg_available_version_local)
+	if [ -n "$ver" ]; then
+		mkdir -p "$Z2_TMP"
+		printf '%s\n%s\n' "$now" "$ver" > "$cache"
+		printf '%s' "$ver"
+	fi
 }
 
 z2_embed_into() {
@@ -2481,13 +2583,14 @@ EOF
 		--argjson results "$results" \
 		--argjson bcwcfg "$(z2_bcw_settings)" \
 		--arg version "$(z2_pkg_version)" \
+		--arg latest "$(z2_pkg_available_version)" \
 		--argjson stjob "$stjob" \
 		--argjson st_run "$st_run" \
 		--rawfile logtxt "$logf" \
 		--rawfile stlog "$stlogf" \
 		'{
 			installed:($installed==1), running:($running==1), autostart:($autostart==1), enabled:($enabled==1),
-			version:$version,
+			version:$version, latest_version:$latest,
 			zapret1:{installed:($v1i==1), running:($v1r==1), autostart:($v1a==1)},
 			blockcheckw:{installed:($bcw==1), version:$bcw_ver, running:($bcw_run==1)},
 			nfqws2:$nfq,

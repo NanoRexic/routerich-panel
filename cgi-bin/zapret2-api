@@ -338,8 +338,10 @@ case "$REQUEST_METHOD" in
 					z1_installed && v1i=1
 					z1_running && v1r=1
 					z1_autostart && v1a=1
-					jq -n --argjson v1i "$v1i" --argjson v1r "$v1r" --argjson v1a "$v1a" '{
+					jq -n --argjson v1i "$v1i" --argjson v1r "$v1r" --argjson v1a "$v1a" \
+						--arg latest "$(z2_pkg_available_version)" '{
 						installed:false, running:false, autostart:false, enabled:false,
+						version:"", latest_version:$latest,
 						zapret1:{installed:($v1i==1), running:($v1r==1), autostart:($v1a==1)},
 						blockcheckw:{installed:false, version:"", running:false},
 						profiles:[], games:{active:null, xtreme:false}

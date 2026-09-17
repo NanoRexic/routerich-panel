@@ -119,10 +119,14 @@
     }
     el.hidden = false;
     el.className = 'zapret-install-banner warn';
+    const latest = d && d.latest_version ? ' (v' + d.latest_version + ')' : '';
+    const v1warn = d && d.zapret1 && (d.zapret1.installed || d.zapret1.running || d.zapret1.autostart)
+      ? '<p>Zapret v1 будет удалён при установке Zapret2.</p>'
+      : '';
     el.innerHTML =
-      '<strong>Zapret2 не найден</strong>' +
-      '<p>Установка пакета Routerich Zapret2. Zapret v1 будет удалён.</p>' +
-      '<button type="button" class="btn btn-primary btn-sm" id="z2-install-btn">Установить Zapret2</button>';
+      '<strong>Zapret2 не установлен</strong>' +
+      v1warn +
+      '<button type="button" class="btn btn-primary btn-sm" id="z2-install-btn">Установить Zapret2' + latest + '</button>';
     if (body) body.classList.add('zapret-disabled');
     if (tabbar) tabbar.classList.add('zapret-disabled');
   }

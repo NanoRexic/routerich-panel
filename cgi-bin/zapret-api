@@ -71,10 +71,12 @@ api_zapret2_status_json() {
 	z2_autostart=0
 	z2_enabled=0
 
-	if [ -f /etc/init.d/zapret2 ] || [ -f /etc/config/zapret2 ] || [ -d /opt/zapret2 ]; then
+	if command -v z2_installed >/dev/null 2>&1; then
+		z2_installed && z2_installed=1
+	elif [ -n "$(opkg list-installed zapret2 2>/dev/null)" ]; then
 		z2_installed=1
 	fi
-	if [ -f /etc/init.d/zapret2 ]; then
+	if [ -x /etc/init.d/zapret2 ]; then
 		status_out=$(/etc/init.d/zapret2 status 2>/dev/null | head -n1 | tr -d '\r\n\t ')
 		case "$status_out" in
 			running|started|active) z2_running=1 ;;
@@ -110,7 +112,12 @@ api_zapret2_status_json() {
 }
 
 disable_zapret2_api() {
-	if [ ! -f /etc/init.d/zapret2 ] && [ ! -f /etc/config/zapret2 ] && [ ! -d /opt/zapret2 ]; then
+	if command -v z2_installed >/dev/null 2>&1; then
+		z2_installed || {
+			json_error "Zapret2 не найден на роутере"
+			return 1
+		}
+	elif [ ! -x /etc/init.d/zapret2 ] && [ ! -f /etc/config/zapret2 ] && [ ! -d /opt/zapret2 ]; then
 		json_error "Zapret2 не найден на роутере"
 		return 1
 	fi
