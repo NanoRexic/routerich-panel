@@ -674,6 +674,97 @@ body.modal-open {
 
 }
 
+.awg-ctor {
+  margin: 0 20px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(255,255,255,0.03));
+}
+
+.awg-ctor-toggle {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.awg-ctor-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+  padding: 0 12px 12px;
+}
+
+.awg-ctor-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.awg-ctor-body input,
+.awg-ctor-body select,
+.awg-ctor-body textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.awg-ctor-body select option,
+.saved-select option {
+  color: #1b1e24;
+  background-color: #ffffff;
+}
+
+.awg-ctor-wide,
+.awg-ctor-v3,
+.awg-ctor-note {
+  grid-column: 1 / -1;
+}
+
+.awg-ctor-v3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.awg-ctor-note {
+  margin: 0;
+  color: #e6b35a;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+  .awg-ctor-body,
+  .awg-ctor-v3 {
+    grid-template-columns: 1fr;
+  }
+
+  .modal.has-scout.scout-open .modal-header h2,
+  .modal.has-scout.scout-open .browse-btn,
+  .modal.has-scout.scout-open #awg-ctor,
+  .modal.has-scout.scout-open .scout-summary,
+  .modal.has-scout.scout-open .scout-table-title,
+  .modal.has-scout.scout-open .scout-hint {
+    display: none;
+  }
+
+  .modal.has-scout.scout-open .modal-header {
+    padding-top: 12px;
+    gap: 8px;
+  }
+
+  .modal.has-scout.scout-open .scout-table-wrap {
+    min-height: 120px;
+    max-height: 28dvh;
+  }
+}
+
 .scout-results {
   padding: 4px 20px 8px;
   display: flex;

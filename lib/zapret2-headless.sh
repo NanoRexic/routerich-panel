@@ -1516,6 +1516,39 @@ z2_bcw_log_ui() {
 	} > "$dest" 2>/dev/null
 }
 
+z2_bcw_ensure_nfqws2() {
+	real=""
+	for p in /opt/zapret2/nfq2/nfqws2 /opt/zapret2/nfqws2 /usr/bin/nfqws2; do
+		if [ -x "$p" ] && [ ! -L "$p" ]; then
+			real="$p"
+			break
+		fi
+		if [ -L "$p" ]; then
+			t=$(readlink -f "$p" 2>/dev/null)
+			[ -x "$t" ] && real="$t" && break
+		fi
+	done
+	[ -n "$real" ] || return 1
+	[ -x /opt/zapret2/nfq2/nfqws2 ] || ln -sf "$real" /opt/zapret2/nfq2/nfqws2
+	[ -e /opt/zapret2/nfqws2 ] || ln -sf "$real" /opt/zapret2/nfqws2
+	[ -e /usr/bin/nfqws2 ] || ln -sf "$real" /usr/bin/nfqws2
+	export PATH="/opt/zapret2/nfq2:/opt/zapret2:/usr/bin:/usr/sbin:/bin:/sbin"
+	return 0
+}
+
+# 1024 profiles ≈ 7000 argv → exec 127 on OpenWrt. Cap so nfqws2 can start.
+z2_bcw_apply_limits() {
+	w="$1"
+	case "$w" in ''|*[!0-9]*) w=32 ;; esac
+	[ "$w" -lt 1 ] && w=1
+	ppi="$w"
+	[ "$ppi" -lt 16 ] && ppi=16
+	[ "$ppi" -gt 128 ] && ppi=128
+	[ "$w" -gt "$ppi" ] && w="$ppi"
+	Z2_BCW_W="$w"
+	Z2_BCW_PPI="$ppi"
+}
+
 z2_bcw_run_one() {
 	export TERM=xterm-256color
 	export COLUMNS=120
@@ -1795,6 +1828,9 @@ z2_bcw_execute() {
 	ext="$take"
 	[ "$ext" -eq 0 ] && ext=50
 	restore=$(jq -r '.restore_zapret2 // false' "$Z2_JOB")
+	z2_bcw_apply_limits "$workers"
+	workers="$Z2_BCW_W"
+	z2_bcw_ensure_nfqws2 || true
 
 	z2_job_write "$(jq --arg p "running" --arg m "$mode" '.phase=$p | .mode=$m | .error=null | .step="stop"' "$Z2_JOB")"
 
@@ -1816,7 +1852,8 @@ z2_bcw_execute() {
 			z2_bcw_note "=== Сканирование (scan) ==="
 			Z2_SCAN_TAKE="$take"
 			export Z2_SCAN_TAKE
-			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup scan \
+			z2_bcw_note "=== nfqws2: $Z2_BCW_PPI профилей на процесс, потоков $workers ==="
+			if z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup scan \
 				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" --top "$take"; then
 				ok=1
 			fi
@@ -1827,7 +1864,8 @@ z2_bcw_execute() {
 			z2_bcw_note "=== Сканирование (scan) ==="
 			Z2_SCAN_TAKE="$take"
 			export Z2_SCAN_TAKE
-			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup scan \
+			z2_bcw_note "=== nfqws2: $Z2_BCW_PPI профилей на процесс, потоков $workers ==="
+			if z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup scan \
 				-d "$domains" -p "$proto" --timeout "$timeout" --dns "$dns" --top "$take"; then
 				ok=1
 			fi
@@ -1836,7 +1874,7 @@ z2_bcw_execute() {
 			if [ -n "$rep" ] && [ -s "$rep" ]; then
 				z2_bcw_set_step check
 				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
-				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+				if ! z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup check \
 					--from-file "$rep" -d "$first_domain" --dns "$dns" --take "$take"; then
 					z2_bcw_note "=== check завершился с ошибкой ==="
 				fi
@@ -1850,7 +1888,8 @@ z2_bcw_execute() {
 			z2_bcw_note "=== Универсальный поиск (несколько доменов) ==="
 			Z2_SCAN_TAKE="$take"
 			export Z2_SCAN_TAKE
-			if z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup universal \
+			z2_bcw_note "=== nfqws2: $Z2_BCW_PPI профилей на процесс, потоков $workers ==="
+			if z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup universal \
 				--domain-list "$Z2_WORK/domains.txt" -p "$proto" --dns "$dns" \
 				-o "$Z2_WORK/universal.json"; then
 				ok=1
@@ -1860,14 +1899,14 @@ z2_bcw_execute() {
 			if z2_bcw_json_to_vanilla "$Z2_WORK/universal.json" "$first_domain" "$proto" "$ucheck" "$ext"; then
 				z2_bcw_set_step check
 				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
-				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+				if ! z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup check \
 					--from-file "$ucheck" -d "$first_domain" --dns "$dns" --take "$take"; then
 					z2_bcw_note "=== check завершился с ошибкой ==="
 				fi
 			elif [ -f "$Z2_WORK/universal.json" ]; then
 				z2_bcw_set_step check
 				z2_bcw_note "=== Проверка стратегий (check, blockcheckw rustls) ==="
-				if ! z2_bcw_wait blockcheckw -w "$workers" --auto --no-conflict-cleanup check \
+				if ! z2_bcw_wait blockcheckw -w "$workers" --profiles-per-instance "$Z2_BCW_PPI" --auto --no-conflict-cleanup check \
 					--from-file "$Z2_WORK/universal.json" -d "$first_domain" --dns "$dns" --take "$take"; then
 					z2_bcw_note "=== check завершился с ошибкой ==="
 				fi
@@ -1887,7 +1926,8 @@ z2_bcw_execute() {
 			maxw=$(z2_default_workers)
 			[ "$maxw" -ge 128 ] && maxw=256
 			[ "$maxw" -lt 64 ] && maxw=64
-			if z2_bcw_wait blockcheckw --auto --no-conflict-cleanup benchmark \
+			[ "$maxw" -gt 128 ] && maxw=128
+			if z2_bcw_wait blockcheckw --profiles-per-instance 128 --auto --no-conflict-cleanup benchmark \
 				-t 15 -M "$maxw" -d "$first_domain" -p "$proto_one"; then
 				ok=1
 			fi

@@ -12,6 +12,7 @@ WS_PID="$WS_DIR/scan.pid"
 WS_LOCK="$WS_DIR/run.lock"
 WS_REPO="vernette/warpscout"
 WS_TIMEOUT=240
+[ -f /etc/routerich-panel/awg-constructor.sh ] && . /etc/routerich-panel/awg-constructor.sh
 
 ws_now() { date +%s; }
 
@@ -203,10 +204,38 @@ ws_run_job() {
 	ws_job_write "$(jq -n --argjson started "$now" '{ok:true,running:true,phase:"scanning",started_at:$started,error:""}')"
 	GOMEMLIMIT=32MiB
 	export GOMEMLIMIT
-	"$WS_BIN" scan -p awg -P -plain \
-		-a "$WS_ACCT" \
-		-jt 4 -n 3 -t 2 \
-		-o "$WS_REPORT" \
+	jc=4
+	jmin=40
+	jmax=70
+	i1mode=cps2
+	i1pkt=""
+	if command -v awg_ctor_get >/dev/null 2>&1; then
+		ver=$(awg_ctor_get version)
+		case "$ver" in
+			3.0|3.1)
+				if ! awg_v3_ready | jq -e '.ok' >/dev/null 2>&1; then
+					err="Для AWG ${ver} нужны amneziawg-tools >= ${AWG_TOOLS_MIN} и kmod-amneziawg >= ${AWG_KMOD_MIN}"
+					ws_job_write "$(jq -n --argjson started "$now" --arg error "$err" '{ok:false,running:false,phase:"error",started_at:$started,error:$error}')"
+					rmdir "$WS_LOCK" 2>/dev/null
+					return 1
+				fi
+				;;
+		esac
+		jc=$(awg_ctor_get jc)
+		jmin=$(awg_ctor_get jmin)
+		jmax=$(awg_ctor_get jmax)
+		i1mode=$(awg_ctor_get i1_mode)
+		i1pkt=$(awg_ctor_i1_packet)
+	fi
+	set -- scan -p awg -P -plain -a "$WS_ACCT" -jt 4 -n 3 -t 2 -o "$WS_REPORT"
+	# -dns and -mtu are only valid with -conf; they abort a plain scan.
+	set -- "$@" -jc "$jc" -jmin "$jmin" -jmax "$jmax"
+	case "$i1mode" in
+		sip) set -- "$@" -gen-i1 sip ;;
+		custom) [ -n "$i1pkt" ] && set -- "$@" -i1 "$i1pkt" ;;
+		*) [ -n "$i1pkt" ] && set -- "$@" -i1 "$i1pkt" ;;
+	esac
+	"$WS_BIN" "$@" \
 		>>"$WS_LOG" 2>&1 &
 	spid=$!
 	elapsed=0

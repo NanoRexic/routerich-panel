@@ -246,6 +246,7 @@ function showModal() {
   document.body.classList.add('modal-open');
 
   loadAwgInterfaces();
+  loadAwgConstructor();
 
   Promise.all([
     loadSavedVariants(),
@@ -435,6 +436,135 @@ async function apiGet(path) {
 }
 
 
+
+let awgCtorTimer = 0;
+let awg3Ready = true;
+let awgCtorState = null;
+
+function awgCtorApplyVisibility() {
+  const verEl = document.getElementById('awg-ctor-version');
+  const i1El = document.getElementById('awg-ctor-i1');
+  const ver = verEl ? verEl.value : '2.0';
+  const custom = document.getElementById('awg-ctor-i1-custom-wrap');
+  const note = document.getElementById('awg-ctor-note');
+  if (custom) custom.hidden = !i1El || i1El.value !== 'custom';
+  if (note) {
+    const blocked = ver !== '2.0' && !awg3Ready;
+    note.hidden = !blocked;
+    if (blocked) {
+      note.textContent = 'AWG 3.x нужен amneziawg-tools ≥ 3.1.20260812-r1 и kmod-amneziawg ≥ 6.6.144.3.1.20260812-r1';
+    }
+  }
+  if (verEl) {
+    for (const opt of verEl.options) {
+      if (opt.value !== '2.0') opt.disabled = !awg3Ready;
+    }
+  }
+}
+
+function awgCtorRead() {
+  const base = Object.assign({
+    version: '2.0',
+    dns: '1.1.1.1, 1.0.0.1',
+    mtu: '1280',
+    jc: '4',
+    jmin: '40',
+    jmax: '70',
+    i1_mode: 'cps2',
+    i1_custom: '',
+    content_padding: '10-100',
+    rekey_after: '100-120',
+    rekey_timeout: '3-7',
+    reject_after: '150-180',
+    keepalive_timeout: '5-15',
+    max_handshake: '15-20',
+    persistent_keepalive: '25',
+    disable_cookies: 'on'
+  }, awgCtorState || {});
+  const verEl = document.getElementById('awg-ctor-version');
+  const dnsEl = document.getElementById('awg-ctor-dns');
+  const i1El = document.getElementById('awg-ctor-i1');
+  const customEl = document.getElementById('awg-ctor-i1-custom');
+  if (verEl) base.version = verEl.value;
+  if (dnsEl) {
+    const opt = dnsEl.options[dnsEl.selectedIndex];
+    base.dns = (opt && opt.getAttribute('data-dns')) || '1.1.1.1, 1.0.0.1';
+    base.dns_id = dnsEl.value;
+  }
+  if (i1El) base.i1_mode = i1El.value;
+  if (customEl) base.i1_custom = customEl.value;
+  if (base.version === '2.0') {
+    if (!base.persistent_keepalive || String(base.persistent_keepalive).indexOf('-') !== -1) {
+      base.persistent_keepalive = '25';
+    }
+  } else if (!base.persistent_keepalive || String(base.persistent_keepalive).indexOf('-') === -1) {
+    base.persistent_keepalive = '25-35';
+  }
+  return base;
+}
+
+function awgCtorFill(s) {
+  awgCtorState = s || {};
+  const verEl = document.getElementById('awg-ctor-version');
+  const dnsEl = document.getElementById('awg-ctor-dns');
+  const i1El = document.getElementById('awg-ctor-i1');
+  const customEl = document.getElementById('awg-ctor-i1-custom');
+  if (!verEl) return;
+  verEl.value = s.version || '2.0';
+  if (dnsEl) {
+    const want = String(s.dns || '').replace(/\s+/g, '');
+    let matched = '';
+    for (const opt of dnsEl.options) {
+      const packed = String(opt.getAttribute('data-dns') || '').replace(/\s+/g, '');
+      if (packed && packed === want) matched = opt.value;
+    }
+    dnsEl.value = matched || s.dns_id || 'cloudflare';
+  }
+  if (i1El) i1El.value = s.i1_mode || 'cps2';
+  if (customEl) customEl.value = s.i1_custom || '';
+  awgCtorApplyVisibility();
+}
+
+async function awgCtorSave() {
+  const res = await fetch('/cgi-bin/generate-awg?mode=constructor', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(awgCtorRead())
+  });
+  const data = await res.json();
+  if (data && data.settings) awgCtorState = data.settings;
+  if (data && data.awg3) awg3Ready = !!data.awg3.ok;
+  awgCtorApplyVisibility();
+}
+
+function bindAwgConstructor() {
+  const root = document.getElementById('awg-ctor');
+  if (!root || root.dataset.bound) return;
+  root.dataset.bound = '1';
+  root.addEventListener('input', () => {
+    awgCtorApplyVisibility();
+    clearTimeout(awgCtorTimer);
+    awgCtorTimer = setTimeout(() => { awgCtorSave().catch(() => {}); }, 400);
+  });
+  root.addEventListener('change', () => {
+    awgCtorApplyVisibility();
+    clearTimeout(awgCtorTimer);
+    awgCtorSave().catch(() => {});
+  });
+}
+
+async function loadAwgConstructor() {
+  bindAwgConstructor();
+  try {
+    const data = await apiGet('generate-awg?mode=constructor');
+    if (data && data.awg3) awg3Ready = !!data.awg3.ok;
+    if (data && data.settings) awgCtorFill(data.settings);
+    else awgCtorApplyVisibility();
+  } catch (err) {
+    awgCtorApplyVisibility();
+  }
+}
 
 function syncSavedPickerVisibility() {
   if (!savedPicker) return;
@@ -1307,6 +1437,7 @@ document.getElementById('btn-generate').addEventListener('click', async () => {
   clearConfigText();
   savedSelect.value = '';
   setAwgUiMode('generate');
+  try { await awgCtorSave(); } catch (err) { /* settings stay on the router */ }
   const btn = document.getElementById('btn-generate');
   const scoutBtn = document.getElementById('btn-generate-scout');
   const origText = btn.textContent;
@@ -1338,6 +1469,7 @@ document.getElementById('btn-generate-scout')?.addEventListener('click', async (
   clearConfigText();
   savedSelect.value = '';
   setAwgUiMode('scan');
+  try { await awgCtorSave(); } catch (err) { /* settings stay on the router */ }
   if (typeof hideScoutResults === 'function') hideScoutResults();
   const btn = document.getElementById('btn-generate-scout');
   const genBtn = document.getElementById('btn-generate');
