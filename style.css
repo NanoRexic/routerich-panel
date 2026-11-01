@@ -4648,3 +4648,56 @@ body.notification-center-open {
   display: none !important;
 
 }
+
+.z2-manual-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.z2-manual-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.z2-legacy-title {
+  margin: 18px 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.zapret-tab.is-disabled,
+.zapret-tab:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
+
+body.panel-busy {
+  cursor: wait;
+}
+
+body.panel-busy .menu-item,
+body.panel-busy .header-btn,
+body.panel-busy .modal button:not(.panel-busy-allow):not(.zapret-tab),
+body.panel-busy .modal select,
+body.panel-busy .modal input,
+body.panel-busy .modal textarea,
+body.panel-busy .modal label,
+body.panel-busy .modal summary,
+body.panel-busy .zp-card-btn,
+body.panel-busy .zp-toggle,
+body.panel-busy .z2-profile-drag {
+  pointer-events: none;
+}
+
+body.panel-busy .panel-busy-allow {
+  pointer-events: auto;
+  cursor: pointer;
+}

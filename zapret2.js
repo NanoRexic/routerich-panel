@@ -19,6 +19,29 @@
   let resultItems = [];
   let selectedStamp = '';
   let nfqOpen = false;
+  let jobLockHeld = false;
+
+  function uiBegin() {
+    if (window.RouteRichUi) window.RouteRichUi.begin();
+  }
+
+  function uiEnd() {
+    if (window.RouteRichUi) window.RouteRichUi.end();
+  }
+
+  function uiLocked() {
+    return !!(window.RouteRichUi && window.RouteRichUi.locked());
+  }
+
+  function syncJobLock(on) {
+    if (on && !jobLockHeld) {
+      jobLockHeld = true;
+      uiBegin();
+    } else if (!on && jobLockHeld) {
+      jobLockHeld = false;
+      uiEnd();
+    }
+  }
 
   function showError(msg) {
     const n = notify();
@@ -159,6 +182,16 @@
     return name.indexOf('games_') === 0;
   }
 
+  function gamesKey(d) {
+    const g = d && d.games;
+    if (!g) return '';
+    const active = g.active;
+    const empty = active == null || active === '' || active === 'null';
+    if (g.fresh && empty) return 'new';
+    if (empty) return '';
+    return String(active);
+  }
+
   function renderOverview(d) {
     const el = document.getElementById('zapret2-overview');
     if (!el || !d) return;
@@ -168,7 +201,8 @@
     const bcwRun = !!(d.blockcheckw && d.blockcheckw.running);
     const bcwLabel = !bcwInstalled ? 'нет' : (bcwRun ? 'идёт поиск' : 'установлен');
     const bcwCls = !bcwInstalled ? 'zp-run off' : 'zp-run on';
-    const gv = d.games && d.games.active ? ('Gv' + d.games.active) : 'выкл';
+    const gkey = gamesKey(d);
+    const gv = gkey === 'new' ? 'Новые' : (gkey ? ('Gv' + gkey) : 'выкл');
     const liveBlocks = (d.nfq_blocks && d.nfq_blocks.length)
       ? d.nfq_blocks
       : (d.profiles || []).filter(function (p) { return p.enabled; }).map(function (p) {
@@ -260,7 +294,7 @@
         : '';
       const testBtn = (p.slots || []).length
         ? (testing
-          ? '<button type="button" class="btn btn-outline btn-sm zp-toggle-danger" data-z2-slottest-stop="' + p.name + '">Стоп теста ' +
+          ? '<button type="button" class="btn btn-outline btn-sm zp-toggle-danger panel-busy-allow" data-z2-slottest-stop="' + p.name + '">Стоп теста ' +
             (st.current || 0) + '/' + (st.total_slots || p.slots.length) + '</button>'
           : '<button type="button" class="btn btn-outline btn-sm" data-z2-slottest="' + p.name + '">Тест слотов</button>')
         : '';
@@ -362,8 +396,9 @@
   }
 
   async function embedApply(extra, created, mode, allCount) {
-    if (busy) return;
+    if (busy || uiLocked()) return;
     busy = true;
+    uiBegin();
     showError('');
     showStatus(allCount ? 'Встройка всех…' : 'Встройка', 'info', { progress: true, title: 'Применение' });
     try {
@@ -393,6 +428,7 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
@@ -639,12 +675,41 @@
   }
 
   function renderGames(d) {
-    const gv = d && d.games && d.games.active;
+    const key = gamesKey(d);
     const xt = d && d.games && d.games.xtreme;
     document.querySelectorAll('#zapret2-panel-games [data-z2-gv]').forEach(function (btn) {
       const v = btn.dataset.z2Gv;
-      if (v === 'xtreme') btn.classList.toggle('active', !!xt);
-      else btn.classList.toggle('active', String(gv) === v);
+      if (v === 'xtreme') btn.classList.toggle('active', !!xt && key !== 'new');
+      else btn.classList.toggle('active', key === v);
+    });
+  }
+
+  function syncManualUi(d) {
+    const on = !!(d && d.manual);
+    const box = document.getElementById('z2-manual');
+    if (box) box.checked = on;
+    const presets = document.getElementById('zapret2-presets');
+    const editor = document.getElementById('zapret2-strategies');
+    if (presets) presets.hidden = on;
+    if (editor) editor.hidden = !on;
+    const searchBlocked = !on && !searchInFlight();
+    const searchTab = document.querySelector('#zapret2-tabs [data-tab="search"]');
+    if (searchTab) {
+      searchTab.classList.toggle('is-disabled', searchBlocked);
+      searchTab.disabled = searchBlocked;
+      searchTab.setAttribute('aria-disabled', searchBlocked ? 'true' : 'false');
+    }
+    if (searchBlocked) {
+      const active = document.querySelector('#zapret2-tabs .zapret-tab.active');
+      if (active && active.dataset.tab === 'search') switchTab('strategies');
+    }
+    const chosen = (d && d.presets) || {};
+    document.querySelectorAll('[data-z2-preset]').forEach(function (btn) {
+      const spec = String(btn.dataset.z2Preset || '');
+      const i = spec.indexOf(':');
+      const kind = i >= 0 ? spec.slice(0, i) : '';
+      const name = i >= 0 ? spec.slice(i + 1) : '';
+      btn.classList.toggle('active', !!name && chosen[kind] === name);
     });
   }
 
@@ -688,6 +753,8 @@
     else if (!live) stopPoll();
     if (d && d.slottest && d.slottest.running) startSlotPoll();
     else stopSlotPoll();
+    syncManualUi(d);
+    syncJobLock(searchInFlight() || !!(d && d.slottest && d.slottest.running));
   }
 
   async function refresh(opts) {
@@ -710,10 +777,12 @@
 
   async function run(target, extra, label) {
     if (busy) return;
+    if (uiLocked() && target !== 'bcw-stop' && target !== 'slottest-stop') return;
     if ((target === 'start' || target === 'restart') && v1Active(data)) {
       if (!confirm('Zapret v1 будет остановлен. Продолжить?')) return;
     }
     busy = true;
+    uiBegin();
     showError('');
     showStatus(label || target, 'info', { progress: true, title: 'Применение' });
     try {
@@ -730,16 +799,18 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
   async function startInstall() {
-    if (busy) return;
+    if (busy || uiLocked()) return;
     if (data && data.installed) return;
     if (data && data.zapret1 && (data.zapret1.installed || data.zapret1.running || data.zapret1.autostart)) {
       if (!confirm('Zapret v1 будет удалён. Продолжить установку Zapret2?')) return;
     }
     busy = true;
+    uiBegin();
     showError('');
     showStatus('Установка Zapret2…', 'info', { progress: true, title: 'Установка' });
     try {
@@ -756,13 +827,15 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
   async function startBcwInstall() {
-    if (busy) return;
+    if (busy || uiLocked()) return;
     if (data && data.blockcheckw && data.blockcheckw.installed) return;
     busy = true;
+    uiBegin();
     showError('');
     showStatus('Установка blockcheckw…', 'info', { progress: true, title: 'Установка' });
     try {
@@ -779,6 +852,7 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
@@ -799,7 +873,7 @@
   }
 
   async function startBcw(mode) {
-    if (busy) return;
+    if (busy || uiLocked()) return;
     if (searchInFlight()) {
       showError('Сначала дождитесь окончания текущего запуска');
       return;
@@ -809,6 +883,7 @@
       return;
     }
     busy = true;
+    uiBegin();
     showStatus('Поиск стратегий…', 'info', { progress: true, title: 'blockcheckw' });
     renderResultsPending();
     renderLog('');
@@ -837,11 +912,12 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
   async function startBench() {
-    if (busy) return;
+    if (busy || uiLocked()) return;
     if (searchInFlight()) {
       showError('Сначала дождитесь окончания текущего запуска');
       return;
@@ -851,6 +927,7 @@
       return;
     }
     busy = true;
+    uiBegin();
     showError('');
     showStatus('Benchmark потоков…', 'info', { progress: true, title: 'blockcheckw' });
     renderLog('');
@@ -882,6 +959,7 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
@@ -926,7 +1004,7 @@
   }
 
   async function startSlottest(name) {
-    if (busy || !name) return;
+    if (busy || uiLocked() || !name) return;
     if (data && data.slottest && data.slottest.running) {
       showError('Тест слотов уже выполняется');
       return;
@@ -935,6 +1013,7 @@
       if (!confirm('Zapret v1 будет остановлен на время проверки. Продолжить?')) return;
     }
     busy = true;
+    uiBegin();
     showError('');
     showStatus('Тест слотов…', 'info', { progress: true, title: 'Проверка' });
     try {
@@ -951,6 +1030,7 @@
       showStatus('');
     } finally {
       busy = false;
+      uiEnd();
     }
   }
 
@@ -1004,11 +1084,14 @@
   }
 
   function switchTab(id) {
+    const searchTab = document.querySelector('#zapret2-tabs [data-tab="search"]');
+    if (id === 'search' && searchTab && (searchTab.disabled || searchTab.classList.contains('is-disabled'))) return;
     tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === id); });
     panels.forEach(function (p) { p.classList.toggle('active', p.id === 'zapret2-panel-' + id); });
   }
 
   function showModal() {
+    if (uiLocked()) return;
     if (!overlay) return;
     overlay.hidden = false;
     document.body.classList.add('modal-open');
@@ -1016,6 +1099,7 @@
   }
 
   function hideModal() {
+    if (uiLocked()) return;
     if (!overlay) return;
     if (searchInFlight()) {
       if (!confirm('Поиск стратегий ещё идёт. Закрыть окно?\n\nНа роутере поиск не остановится — его можно снова открыть в Zapret2.')) return;
@@ -1133,7 +1217,7 @@
 
     strat.addEventListener('pointerdown', function (e) {
       if (e.button && e.button !== 0) return;
-      if (busy) return;
+      if (busy || uiLocked()) return;
       const handle = e.target.closest('[data-z2-profile-drag]');
       if (handle) {
         const card = handle.closest('[data-profile]');
@@ -1331,14 +1415,49 @@
     bind('z2-embed-btn', function () { embedFromSearch(false); });
     bind('z2-embed-all-btn', function () { embedFromSearch(true); });
 
+    const manualBox = document.getElementById('z2-manual');
+    if (manualBox) {
+      manualBox.addEventListener('change', function () {
+        const want = manualBox.checked;
+        if (busy || uiLocked()) {
+          syncManualUi(data);
+          return;
+        }
+        if (!want && searchInFlight()) {
+          showError('Сначала остановите поиск');
+          syncManualUi(data);
+          return;
+        }
+        run('manual-set', { enabled: want ? 1 : 0 }, want ? 'Ручная настройка' : 'Профили')
+          .then(function () { syncManualUi(data); });
+      });
+    }
+    const presetRoot = document.getElementById('zapret2-presets');
+    if (presetRoot) {
+      presetRoot.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-z2-preset]');
+        if (!btn) return;
+        const spec = String(btn.dataset.z2Preset || '');
+        const sep = spec.indexOf(':');
+        if (sep < 0) return;
+        const kind = spec.slice(0, sep);
+        const name = spec.slice(sep + 1);
+        const cur = data && data.presets ? String(data.presets[kind] || '') : '';
+        if (cur === name) return run('preset-apply', { kind: kind, name: '' }, 'Профиль выкл');
+        const titles = { base: 'Базовая', youtube: 'YouTube', discord: 'Discord' };
+        run('preset-apply', { kind: kind, name: name }, (titles[kind] || 'Профиль') + ' ' + String(btn.textContent || name).trim());
+      });
+    }
+
     const games = document.getElementById('zapret2-panel-games');
     if (games) games.addEventListener('click', function (e) {
       const btn = e.target.closest('[data-z2-gv]');
       if (!btn) return;
       const v = btn.dataset.z2Gv;
       if (v === 'xtreme') return run('games', { value: 'xtreme' }, 'Xtreme');
-      const cur = data && data.games && String(data.games.active);
+      const cur = gamesKey(data);
       if (cur === v) return run('games', { value: 'remove' }, 'Игры выкл');
+      if (v === 'new') return run('games', { value: 'new' }, 'Игры: новые');
       run('games', { value: v }, 'Игры Gv' + v);
     });
 

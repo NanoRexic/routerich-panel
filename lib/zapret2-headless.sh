@@ -22,6 +22,7 @@ Z2_ST_PID="$Z2_TMP/slottest.pid"
 
 Z2_PORTS_UDP="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"
 Z2_PORTS_TCP="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442"
+[ -f /etc/routerich-panel/zapret2-presets.sh ] && . /etc/routerich-panel/zapret2-presets.sh
 Z2_XTREME_PORTS="80,88,444-65535"
 Z2_XTREME_NFQ="80,88,443-65535"
 
@@ -208,6 +209,130 @@ z2_set_script() {
 	script="$2"
 	uci -q set "zapret2.$name.script=$script"
 	uci -q commit zapret2
+}
+
+z2_restart_if_live() {
+	if z2_running || z2_autostart; then
+		z2_restart_v2 || return 1
+	fi
+	return 0
+}
+
+z2_enable_script_blobs() {
+	printf '%s\n' "$1" | awk '
+		{
+			s = $0
+			while (match(s, /(blob|pattern|seqovl_pattern)=[A-Za-z_][A-Za-z0-9_]*/)) {
+				tok = substr(s, RSTART, RLENGTH)
+				sub(/^[^=]*=/, "", tok)
+				print tok
+				s = substr(s, RSTART + RLENGTH)
+			}
+		}
+	' | while IFS= read -r b; do
+		[ -n "$b" ] || continue
+		z2_enable_blob "$b"
+	done
+}
+
+z2_preset_group() {
+	case "$1" in
+		base) printf '%s' 'V_circular v1 v2 v3 v4 v5 v6 v7 v8 v9 v10' ;;
+		youtube) printf '%s' 'Yv08 Yv01 Yv02 Yv03 Yv04 Yv05 Yv06 Yv07 Yv09 Yv10 Yv11' ;;
+		discord) printf '%s' 'Discord_circular' ;;
+		*) return 1 ;;
+	esac
+}
+
+z2_preset_clear() {
+	kind="$1"
+	group=$(z2_preset_group "$kind") || return 1
+	for n in $group; do
+		uci -q get "zapret2.$n" >/dev/null 2>&1 || continue
+		uci -q set "zapret2.$n.enabled=0"
+	done
+	uci -q commit zapret2
+	z2_restart_if_live || return 1
+	return 0
+}
+
+z2_preset_active() {
+	for n in $(z2_preset_group "$1"); do
+		[ "$(uci -q get "zapret2.$n.enabled" 2>/dev/null)" = "1" ] && { printf '%s' "$n"; return 0; }
+	done
+}
+
+z2_preset_apply() {
+	kind="$1"
+	name="$2"
+	group=$(z2_preset_group "$kind") || return 1
+	ok=0
+	for n in $group; do
+		[ "$n" = "$name" ] && ok=1
+	done
+	[ "$ok" = "1" ] || return 1
+	script=$(z2_preset_script "$name") || return 1
+	for n in $group; do
+		uci -q get "zapret2.$n" >/dev/null 2>&1 || continue
+		uci -q set "zapret2.$n.enabled=0"
+	done
+	uci -q set "zapret2.$name=strategy"
+	uci -q set "zapret2.$name.enabled=1"
+	uci -q set "zapret2.$name.port=443"
+	uci -q delete "zapret2.$name.protocol" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.protocol=tcp"
+	uci -q delete "zapret2.$name.filter_l3" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.filter_l3=ipv4"
+	uci -q delete "zapret2.$name.filter_l7" 2>/dev/null || true
+	uci -q add_list "zapret2.$name.filter_l7=tls"
+	uci -q delete "zapret2.$name.hostlist" 2>/dev/null || true
+	uci -q delete "zapret2.$name.hostlist_exclude" 2>/dev/null || true
+	case "$kind" in
+		base)
+			uci -q add_list "zapret2.$name.hostlist_exclude=list_hosts_user_exclude"
+			uci -q add_list "zapret2.$name.hostlist_exclude=list_hosts_youtube"
+			;;
+		youtube)
+			uci -q add_list "zapret2.$name.hostlist=list_hosts_youtube"
+			;;
+		discord)
+			uci -q add_list "zapret2.$name.filter_l7=discord"
+			uci -q add_list "zapret2.$name.hostlist=list_hosts_discord"
+			;;
+	esac
+	z2_enable_script_blobs "$script"
+	uci -q set "zapret2.$name.script=$script"
+	uci -q commit zapret2
+	z2_restart_if_live || return 1
+	return 0
+}
+
+z2_games_apply_new() {
+	z2_ports_save_if_needed
+	z2_ensure_game_sections
+	tcp_ports="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442"
+	udp_ports="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"
+	cur_t=$(z2_uci_get zapret2.main.nfqws_ports_tcp)
+	cur_u=$(z2_uci_get zapret2.main.nfqws_ports_udp)
+	uci -q set zapret2.main.nfqws_ports_tcp="$(z2_csv_add "$cur_t" "$tcp_ports")"
+	uci -q set zapret2.main.nfqws_ports_udp="$(z2_csv_add "$cur_u" "$udp_ports")"
+	uci -q set zapret2.games_tcp.enabled='1'
+	uci -q set zapret2.games_tcp.port="$tcp_ports"
+	uci -q set zapret2.games_tcp.protocol='tcp'
+	uci -q set zapret2.games_udp.enabled='1'
+	uci -q set zapret2.games_udp.port="$udp_ports"
+	uci -q set zapret2.games_udp.protocol='udp'
+	uci -q commit zapret2
+	tcp_script=$(z2_preset_script games_tcp) || return 1
+	udp_script=$(z2_preset_script games_udp) || return 1
+	z2_enable_script_blobs "$tcp_script"
+	z2_enable_script_blobs "$udp_script"
+	z2_set_script games_tcp "$tcp_script"
+	z2_set_script games_udp "$udp_script"
+	z2_state_init
+	tmp="$Z2_TMP/z2-state.$$"
+	jq '.games.active="new" | .games.xtreme=false' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+	z2_restart_if_live || return 1
 }
 
 z2_uci_init_strategy() {
@@ -2604,6 +2729,16 @@ EOF
 	fi
 	logf="$Z2_LOG_UI"
 	z2_bcw_log_ui "$logf"
+	pbase=$(z2_preset_active base)
+	pyt=$(z2_preset_active youtube)
+	pdisc=$(z2_preset_active discord)
+	manual=0
+	if [ -f "$Z2_STATE" ]; then
+		manual_raw=$(jq -r '.ui.manual // false' "$Z2_STATE" 2>/dev/null)
+		case "$manual_raw" in 1|true) manual=1 ;; esac
+	fi
+	gnew=0
+	[ -f "$Z2_STATE" ] && [ "$(jq -r '.games.active // ""' "$Z2_STATE" 2>/dev/null)" = "new" ] && gnew=1
 	jq -n \
 		--argjson installed "$installed" \
 		--argjson running "$running" \
@@ -2622,6 +2757,8 @@ EOF
 		--argjson bcw_run "$bcw_run" \
 		--argjson results "$results" \
 		--argjson bcwcfg "$(z2_bcw_settings)" \
+		--arg pbase "$pbase" --arg pyt "$pyt" --arg pdisc "$pdisc" \
+		--argjson manual "$manual" --argjson gnew "$gnew" \
 		--arg version "$(z2_pkg_version)" \
 		--arg latest "$(z2_pkg_available_version)" \
 		--argjson stjob "$stjob" \
@@ -2636,7 +2773,13 @@ EOF
 			nfqws2:$nfq,
 			nfq_blocks:$nfq_blocks,
 			profiles:$profiles,
-			games:{active:$gv, xtreme:($xtreme==1)},
+			games:{active:$gv, xtreme:($xtreme==1), fresh:($gnew==1)},
+			manual:($manual==1),
+			presets:{
+				base:$pbase,
+				youtube:$pyt,
+				discord:$pdisc
+			},
 			backup:{exists:($backup==1)},
 			job:($job + {now:$now}),
 			bcw:$bcwcfg,

@@ -1,6 +1,22 @@
 'use strict';
 
+window.RouteRichUi = (function () {
+  let n = 0;
+  function paint() {
+    document.body.classList.toggle('panel-busy', n > 0);
+    if (n > 0) document.body.setAttribute('aria-busy', 'true');
+    else document.body.removeAttribute('aria-busy');
+  }
+  return {
+    begin: function () { n += 1; paint(); },
+    end: function () { n = Math.max(0, n - 1); paint(); },
+    locked: function () { return n > 0; }
+  };
+})();
 
+function uiLocked() {
+  return window.RouteRichUi.locked();
+}
 
 const overlay = document.getElementById('modal-overlay');
 
@@ -235,6 +251,8 @@ async function loadAwgInterfaces() {
 
 function showModal() {
 
+  if (uiLocked()) return;
+
   clearConfigText();
 
   clearModalError();
@@ -263,7 +281,9 @@ function showModal() {
 
 
 
-function hideModal() {
+function hideModal(force) {
+
+  if (!force && uiLocked()) return;
 
   overlay.hidden = true;
 
@@ -1036,9 +1056,13 @@ if (operaProxyBtn) {
 
   operaProxyBtn.addEventListener('click', async () => {
 
+    if (uiLocked()) return;
+
     showStatus('Opera-Proxy…', 'info', { title: 'Проверка', progress: true });
 
     operaProxyBtn.disabled = true;
+
+    window.RouteRichUi.begin();
 
 
 
@@ -1079,6 +1103,8 @@ if (operaProxyBtn) {
       notify()?.error('Ошибка сети: ' + err.message, { source: 'Opera-Proxy' });
 
     } finally {
+
+      window.RouteRichUi.end();
 
       operaProxyBtn.disabled = false;
 
@@ -1290,6 +1316,8 @@ if (panelUpdateBtn) {
 
 
 
+    if (uiLocked()) return;
+
     if (!confirm('Обновить панель' + versionHint + '?' + currentHint + '\n\nСтраница перезагрузится автоматически после обновления.')) {
 
       return;
@@ -1301,6 +1329,8 @@ if (panelUpdateBtn) {
     showStatus('GitHub (до 2 мин)…', 'info', { title: 'Обновление', progress: true });
 
     panelUpdateBtn.disabled = true;
+
+    window.RouteRichUi.begin();
 
 
 
@@ -1362,6 +1392,10 @@ if (panelUpdateBtn) {
 
       panelUpdateBtn.disabled = false;
 
+    } finally {
+
+      window.RouteRichUi.end();
+
     }
 
   });
@@ -1398,9 +1432,13 @@ savedSelect.addEventListener('change', () => {
 
 document.getElementById('btn-reboot').addEventListener('click', async () => {
 
+  if (uiLocked()) return;
+
   if (!confirm('Перезагрузить роутер? Соединение будет прервано.')) return;
 
   showStatus('Команда reboot…', 'info', { title: 'Перезагрузка', progress: true });
+
+  window.RouteRichUi.begin();
 
   try {
 
@@ -1426,6 +1464,10 @@ document.getElementById('btn-reboot').addEventListener('click', async () => {
 
     notify()?.success('Роутер перезагружается (соединение прервано).', { source: 'Перезагрузка', title: 'Команда отправлена' });
 
+  } finally {
+
+    window.RouteRichUi.end();
+
   }
 
 });
@@ -1433,6 +1475,8 @@ document.getElementById('btn-reboot').addEventListener('click', async () => {
 
 
 document.getElementById('btn-generate').addEventListener('click', async () => {
+  if (uiLocked()) return;
+  window.RouteRichUi.begin();
   clearModalError();
   clearConfigText();
   savedSelect.value = '';
@@ -1458,6 +1502,7 @@ document.getElementById('btn-generate').addEventListener('click', async () => {
     hideModalStatus();
     showModalError('Ошибка сети: ' + err.message);
   } finally {
+    window.RouteRichUi.end();
     btn.disabled = false;
     if (scoutBtn) scoutBtn.disabled = false;
     btn.textContent = origText;
@@ -1465,6 +1510,8 @@ document.getElementById('btn-generate').addEventListener('click', async () => {
 });
 
 document.getElementById('btn-generate-scout')?.addEventListener('click', async () => {
+  if (uiLocked()) return;
+  window.RouteRichUi.begin();
   clearModalError();
   clearConfigText();
   savedSelect.value = '';
@@ -1531,6 +1578,7 @@ document.getElementById('btn-generate-scout')?.addEventListener('click', async (
     hideModalStatus();
     showModalError('Ошибка сети: ' + err.message);
   } finally {
+    window.RouteRichUi.end();
     btn.disabled = false;
     if (genBtn) genBtn.disabled = false;
     btn.textContent = origText;
@@ -1538,6 +1586,8 @@ document.getElementById('btn-generate-scout')?.addEventListener('click', async (
 });
 
 document.getElementById('btn-import').addEventListener('click', async () => {
+
+  if (uiLocked()) return;
 
   const text = configText.value.trim();
 
@@ -1569,6 +1619,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
   showModalStatus(iface, 'info', { title: 'Импорт', progress: true });
 
+  window.RouteRichUi.begin();
+
   try {
 
     const data = await apiPost('import-awg', text, undefined, { iface: iface });
@@ -1579,7 +1631,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
       hideModalStatus();
 
-      hideModal();
+      hideModal(true);
 
       notify()?.success(appliedIface, {
 
@@ -1606,6 +1658,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
     showModalError('Ошибка сети: ' + err.message);
 
   } finally {
+
+    window.RouteRichUi.end();
 
     btn.disabled = false;
 

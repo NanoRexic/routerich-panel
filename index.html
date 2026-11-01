@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.6">
+  <meta name="routerich-version" content="1.6.1">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -456,7 +456,7 @@
       <nav class="zapret-tabs" id="zapret2-tabs" aria-label="Разделы Zapret2">
         <button type="button" class="zapret-tab active" data-tab="overview">Обзор</button>
         <button type="button" class="zapret-tab" data-tab="strategies">Стратегии</button>
-        <button type="button" class="zapret-tab" data-tab="search">Поиск</button>
+        <button type="button" class="zapret-tab is-disabled" data-tab="search" disabled>Поиск</button>
         <button type="button" class="zapret-tab" data-tab="games">Игры</button>
         <button type="button" class="zapret-tab" data-tab="system">Система</button>
       </nav>
@@ -477,7 +477,50 @@
         </section>
 
         <section class="zapret-panel" id="zapret2-panel-strategies">
-          <div id="zapret2-strategies"></div>
+          <label class="z2-manual-toggle">
+            <input type="checkbox" id="z2-manual">
+            Ручная настройка
+          </label>
+          <div id="zapret2-presets">
+            <div class="zp-section">
+              <h3>Базовая стратегия</h3>
+              <div class="zp-btn-grid" id="z2-preset-base">
+                <button type="button" class="zp-toggle" data-z2-preset="base:V_circular">Авто</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v1">v1</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v2">v2</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v3">v3</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v4">v4</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v5">v5</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v6">v6</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v7">v7</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v8">v8</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v9">v9</button>
+                <button type="button" class="zp-toggle" data-z2-preset="base:v10">v10</button>
+              </div>
+            </div>
+            <div class="zp-section">
+              <h3>YouTube</h3>
+              <div class="zp-btn-grid" id="z2-preset-youtube">
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv08">Yv08</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv01">Yv01</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv02">Yv02</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv03">Yv03</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv04">Yv04</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv05">Yv05</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv07">Yv07</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv09">Yv09</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv10">Yv10</button>
+                <button type="button" class="zp-toggle" data-z2-preset="youtube:Yv11">Yv11</button>
+              </div>
+            </div>
+            <div class="zp-section">
+              <h3>Discord</h3>
+              <div class="zp-btn-grid">
+                <button type="button" class="zp-toggle" data-z2-preset="discord:Discord_circular">Discord</button>
+              </div>
+            </div>
+          </div>
+          <div id="zapret2-strategies" hidden></div>
         </section>
 
         <section class="zapret-panel" id="zapret2-panel-search">
@@ -522,7 +565,7 @@
               <button type="button" class="btn btn-primary btn-sm" id="z2-bcw-quick" title="Сканирование, стоп после --take рабочих">Быстрый</button>
               <button type="button" class="btn btn-secondary btn-sm" id="z2-bcw-full" title="Сканирование + проверка стратегий">Стандартный</button>
               <button type="button" class="btn btn-outline btn-sm" id="z2-bcw-univ" title="Несколько доменов, затем проверка">Универсальный</button>
-              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger" id="z2-bcw-stop">Стоп</button>
+              <button type="button" class="btn btn-outline btn-sm zp-toggle-danger panel-busy-allow" id="z2-bcw-stop">Стоп</button>
             </div>
           </div>
           <div class="zp-section" id="z2-bcw-progress" hidden>
@@ -558,7 +601,11 @@
 
         <section class="zapret-panel" id="zapret2-panel-games">
           <div class="zp-section">
-            <h3>Игры (Gv)</h3>
+            <h3>Игры</h3>
+            <div class="zp-btn-grid">
+              <button type="button" class="zp-toggle" data-z2-gv="new">Новые</button>
+            </div>
+            <h3 class="z2-legacy-title">Legacy *УСТАРЕВШИЕ*</h3>
             <div class="zp-btn-grid">
               <button type="button" class="zp-toggle" data-z2-gv="1">Gv1</button>
               <button type="button" class="zp-toggle" data-z2-gv="2">Gv2</button>

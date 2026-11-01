@@ -128,6 +128,26 @@ api_apply() {
 			uci -q set zapret2.main.enabled='0'
 			uci -q commit zapret2
 			;;
+		manual-set)
+			on=$(printf '%s' "$POST_JSON" | jq -r '.enabled // empty')
+			case "$on" in 1|0|true|false) ;; *) json_error "enabled: 0 или 1"; return ;; esac
+			[ "$on" = "true" ] && on=1
+			[ "$on" = "false" ] && on=0
+			z2_state_init
+			tmp="$Z2_TMP/z2-state.$$"
+			jq --argjson on "$on" '.ui.manual=($on==1)' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+			;;
+		preset-apply)
+			kind=$(printf '%s' "$POST_JSON" | jq -r '.kind // empty')
+			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
+			[ -n "$kind" ] || { json_error "Укажите профиль"; return; }
+			if [ -z "$name" ]; then
+				z2_preset_clear "$kind" || { json_error "Не удалось выключить профиль"; return; }
+			elif ! z2_preset_apply "$kind" "$name"; then
+				json_error "Не удалось применить профиль"
+				return
+			fi
+			;;
 		profile-enable)
 			name=$(printf '%s' "$POST_JSON" | jq -r '.name // empty')
 			on=$(printf '%s' "$POST_JSON" | jq -r '.enabled // empty')
@@ -184,6 +204,9 @@ api_apply() {
 			;;
 		games)
 			case "$value" in
+				new)
+					z2_games_apply_new || { json_error "Не удалось применить игровой профиль"; return; }
+					;;
 				1|2|3|4)
 					xtreme=$(printf '%s' "$POST_JSON" | jq -r '.xtreme // false')
 					[ "$xtreme" = "true" ] && xt=1 || xt=0
@@ -211,7 +234,7 @@ api_apply() {
 					z2_restart_v2
 					;;
 				*)
-					json_error "Игры: 1-4, xtreme или remove"
+					json_error "Игры: new, 1-4, xtreme или remove"
 					return
 					;;
 			esac

@@ -19,6 +19,18 @@ let testStrategiesType = '';
 let busy = false;
 let showZapret2DisabledBanner = false;
 
+function uiBegin() {
+  if (window.RouteRichUi) window.RouteRichUi.begin();
+}
+
+function uiEnd() {
+  if (window.RouteRichUi) window.RouteRichUi.end();
+}
+
+function uiLocked() {
+  return !!(window.RouteRichUi && window.RouteRichUi.locked());
+}
+
 const TEST_TYPE_LABELS = {
   versions: 'Стратегии v',
   domain: 'По домену'
@@ -753,10 +765,11 @@ async function refreshZapret(silent) {
 }
 
 async function runTest(mode, options) {
-  if (busy) return;
+  if (busy || uiLocked()) return;
   const z2Warn = zapret2ActionWarning('test');
   if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
+  uiBegin();
   setZapretError('');
   const testLabel = mode === 'strategy'
     ? ((options && options.name) || 'стратегия')
@@ -785,6 +798,7 @@ async function runTest(mode, options) {
     setZapretStatus('');
   } finally {
     busy = false;
+    uiEnd();
   }
 }
 
@@ -806,11 +820,12 @@ async function zapretInstall() {
 }
 
 async function runInstallZapret() {
-  if (busy) return;
+  if (busy || uiLocked()) return;
   const z2Warn = zapret2ActionWarning('install');
   if (z2Warn && !confirm(z2Warn)) return;
 
   busy = true;
+  uiBegin();
   setZapretError('');
   setZapretStatus('Скачивание и установка (до 3 мин)…', 'info', {
     title: 'Установка Zapret',
@@ -842,14 +857,16 @@ async function runInstallZapret() {
     setZapretStatus('');
   } finally {
     busy = false;
+    uiEnd();
   }
 }
 
 async function runAction(target, value) {
-  if (busy) return;
+  if (busy || uiLocked()) return;
   const z2Warn = zapret2ActionWarning(target, value);
   if (z2Warn && !confirm(z2Warn)) return;
   busy = true;
+  uiBegin();
   setZapretError('');
   const label = describeAction(target, value);
   setZapretStatus(label, 'info', { title: 'Применение', progress: true });
@@ -876,16 +893,19 @@ async function runAction(target, value) {
     setZapretStatus('');
   } finally {
     busy = false;
+    uiEnd();
   }
 }
 
 function hideHostsModal() {
+  if (uiLocked()) return;
   if (!hostsOverlay) return;
   hostsOverlay.hidden = true;
   if (zapretOverlay && zapretOverlay.hidden) document.body.classList.remove('modal-open');
 }
 
 function showHostsModal() {
+  if (uiLocked()) return;
   hideZapretModal();
   if (!hostsOverlay) return;
   hostsOverlay.hidden = false;
@@ -894,6 +914,7 @@ function showHostsModal() {
 }
 
 function showZapretModal() {
+  if (uiLocked()) return;
   hideHostsModal();
   const overlay = zapretOverlay || document.getElementById('zapret-overlay');
   if (!overlay) return;
@@ -915,6 +936,7 @@ function showZapretModal() {
 }
 
 function hideZapretModal() {
+  if (uiLocked()) return;
   const overlay = zapretOverlay || document.getElementById('zapret-overlay');
   if (!overlay) return;
   overlay.hidden = true;
@@ -1079,8 +1101,9 @@ function initZapretUi() {
   });
 
   bindClick('zapret-panel-test-clear', async () => {
-  if (busy) return;
+  if (busy || uiLocked()) return;
   busy = true;
+  uiBegin();
   setZapretError('');
   setZapretStatus('История тестов…', 'info', { title: 'Очистка', progress: true });
   try {
@@ -1104,6 +1127,7 @@ function initZapretUi() {
     setZapretStatus('');
   } finally {
     busy = false;
+    uiEnd();
   }
   });
 
@@ -1113,8 +1137,9 @@ function initZapretUi() {
   });
 
   bindClick('zapret-test-clear', async () => {
-  if (busy) return;
+  if (busy || uiLocked()) return;
   busy = true;
+  uiBegin();
   setZapretError('');
   setZapretStatus('Результаты тестов…', 'info', { title: 'Очистка', progress: true });
   try {
@@ -1138,6 +1163,7 @@ function initZapretUi() {
     setZapretStatus('');
   } finally {
     busy = false;
+    uiEnd();
   }
   });
 

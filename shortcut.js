@@ -132,6 +132,7 @@ function renderShortcutContent(platform) {
 }
 
 function showShortcutModal() {
+  if (window.RouteRichUi && window.RouteRichUi.locked()) return;
   renderShortcutContent(detectPlatform());
   shortcutOverlay.hidden = false;
   document.body.classList.add('modal-open');
@@ -142,6 +143,7 @@ function showShortcutModal() {
 }
 
 function hideShortcutModal() {
+  if (window.RouteRichUi && window.RouteRichUi.locked()) return;
   shortcutOverlay.hidden = true;
   document.body.classList.remove('modal-open');
 }
