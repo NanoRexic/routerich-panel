@@ -93,7 +93,6 @@ if [ "$file_count" -gt 0 ] 2>/dev/null; then
 else
 	log "Downloading panel files (fallback list)..."
 	deploy_file "cgi-bin/reboot" "/www/routerich-panel/cgi-bin/reboot" "755"
-	deploy_file "cgi-bin/fix-opera-proxy" "/www/routerich-panel/cgi-bin/fix-opera-proxy" "755"
 	deploy_file "cgi-bin/import-awg" "/www/routerich-panel/cgi-bin/import-awg" "755"
 	deploy_file "cgi-bin/generate-awg" "/www/routerich-panel/cgi-bin/generate-awg" "755"
 	deploy_file "cgi-bin/saved-awg" "/www/routerich-panel/cgi-bin/saved-awg" "755"
@@ -121,6 +120,7 @@ else
 	deploy_file "icon-512-solid.png" "/www/routerich-panel/icon-512-solid.png" "644"
 	deploy_file "apple-touch-icon.png" "/www/routerich-panel/apple-touch-icon.png" "644"
 	deploy_file "manifest.webmanifest" "/www/routerich-panel/manifest.webmanifest" "644"
+	deploy_file "CHANGELOG.md" "/www/routerich-panel/CHANGELOG.md" "644"
 	deploy_file "VERSION" "/www/routerich-panel/VERSION" "644"
 	deploy_file "VERSION" "/etc/routerich-panel/VERSION" "644"
 fi

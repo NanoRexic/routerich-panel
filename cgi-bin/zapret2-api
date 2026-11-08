@@ -204,8 +204,11 @@ api_apply() {
 			;;
 		games)
 			case "$value" in
-				new)
-					z2_games_apply_new || { json_error "Не удалось применить игровой профиль"; return; }
+				h1|gameh1)
+					z2_games_apply_named h1 || { json_error "Не удалось применить GameH1"; return; }
+					;;
+				h5|gameh5|new)
+					z2_games_apply_named h5 || { json_error "Не удалось применить GameH5"; return; }
 					;;
 				1|2|3|4)
 					xtreme=$(printf '%s' "$POST_JSON" | jq -r '.xtreme // false')
@@ -234,7 +237,7 @@ api_apply() {
 					z2_restart_v2
 					;;
 				*)
-					json_error "Игры: new, 1-4, xtreme или remove"
+					json_error "Игры: h1, h5, 1-4, xtreme или remove"
 					return
 					;;
 			esac

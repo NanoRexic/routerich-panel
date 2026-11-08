@@ -83,6 +83,15 @@ z2_state_init() {
 	fi
 }
 
+z2_games_migrate_selection() {
+	[ -s "$Z2_STATE" ] || return 0
+	cur=$(jq -r '.games.active // ""' "$Z2_STATE" 2>/dev/null) || return 0
+	[ "$cur" = "new" ] || return 0
+	z2_mkdirs
+	tmp="$Z2_TMP/z2-state.$$"
+	jq '.games.active="h5"' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+}
+
 z2_default_workers() {
 	mem=$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null)
 	mem=${mem:-0}
@@ -307,15 +316,28 @@ z2_preset_apply() {
 	return 0
 }
 
-z2_games_apply_new() {
+z2_games_apply_named() {
+	id="$1"
+	case "$id" in
+		h1)
+			tcp_name=gameh1_tcp
+			udp_name=gameh1_udp
+			;;
+		h5)
+			tcp_name=games_tcp
+			udp_name=games_udp
+			;;
+		*) return 1 ;;
+	esac
 	z2_ports_save_if_needed
 	z2_ensure_game_sections
-	tcp_ports="2802,2302,2502,3478-3480,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442"
-	udp_ports="88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535"
+	tcp_ports="$Z2_PORTS_TCP"
+	udp_ports="$Z2_PORTS_UDP"
 	cur_t=$(z2_uci_get zapret2.main.nfqws_ports_tcp)
 	cur_u=$(z2_uci_get zapret2.main.nfqws_ports_udp)
 	uci -q set zapret2.main.nfqws_ports_tcp="$(z2_csv_add "$cur_t" "$tcp_ports")"
 	uci -q set zapret2.main.nfqws_ports_udp="$(z2_csv_add "$cur_u" "$udp_ports")"
+	uci -q set zapret2.main.nfqws_ports_udp_keepalive="$udp_ports"
 	uci -q set zapret2.games_tcp.enabled='1'
 	uci -q set zapret2.games_tcp.port="$tcp_ports"
 	uci -q set zapret2.games_tcp.protocol='tcp'
@@ -323,15 +345,15 @@ z2_games_apply_new() {
 	uci -q set zapret2.games_udp.port="$udp_ports"
 	uci -q set zapret2.games_udp.protocol='udp'
 	uci -q commit zapret2
-	tcp_script=$(z2_preset_script games_tcp) || return 1
-	udp_script=$(z2_preset_script games_udp) || return 1
+	tcp_script=$(z2_preset_script "$tcp_name") || return 1
+	udp_script=$(z2_preset_script "$udp_name") || return 1
 	z2_enable_script_blobs "$tcp_script"
 	z2_enable_script_blobs "$udp_script"
 	z2_set_script games_tcp "$tcp_script"
 	z2_set_script games_udp "$udp_script"
 	z2_state_init
 	tmp="$Z2_TMP/z2-state.$$"
-	jq '.games.active="new" | .games.xtreme=false' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
+	jq --arg id "$id" '.games.active=$id | .games.xtreme=false' "$Z2_STATE" > "$tmp" && mv "$tmp" "$Z2_STATE"
 	z2_restart_if_live || return 1
 }
 
@@ -852,6 +874,7 @@ z2_games_apply() {
 		uci -q set zapret2.main.nfqws_ports_tcp="$(z2_csv_add "$cur_t" "$Z2_PORTS_TCP")"
 		uci -q set zapret2.main.nfqws_ports_udp="$(z2_csv_add "$cur_u" "$Z2_PORTS_UDP")"
 	fi
+	uci -q set zapret2.main.nfqws_ports_udp_keepalive="$Z2_PORTS_UDP"
 	uci -q set zapret2.games_udp.enabled='1'
 	uci -q set zapret2.games_udp.port="$udp_ports"
 	uci -q set zapret2.games_udp.protocol='udp'
@@ -872,6 +895,7 @@ z2_games_clear() {
 	uci -q set zapret2.games_tcp.enabled='0' 2>/dev/null || true
 	uci -q delete zapret2.games_udp 2>/dev/null || true
 	uci -q delete zapret2.games_tcp 2>/dev/null || true
+	uci -q delete zapret2.main.nfqws_ports_udp_keepalive 2>/dev/null || true
 	uci -q commit zapret2
 	z2_ports_restore
 	tmp="$Z2_TMP/z2-state.$$"
@@ -2663,6 +2687,7 @@ z2_nfq_blocks_json() {
 
 z2_status_json() {
 	z2_state_init
+	z2_games_migrate_selection
 	installed=0
 	z2_installed && installed=1
 	running=0
@@ -2737,8 +2762,14 @@ EOF
 		manual_raw=$(jq -r '.ui.manual // false' "$Z2_STATE" 2>/dev/null)
 		case "$manual_raw" in 1|true) manual=1 ;; esac
 	fi
-	gnew=0
-	[ -f "$Z2_STATE" ] && [ "$(jq -r '.games.active // ""' "$Z2_STATE" 2>/dev/null)" = "new" ] && gnew=1
+	gstate=""
+	if [ -f "$Z2_STATE" ]; then
+		graw=$(jq -r '.games.active // ""' "$Z2_STATE" 2>/dev/null)
+		case "$graw" in
+			h1|H1) gstate=h1 ;;
+			h5|H5|new) gstate=h5 ;;
+		esac
+	fi
 	jq -n \
 		--argjson installed "$installed" \
 		--argjson running "$running" \
@@ -2758,7 +2789,8 @@ EOF
 		--argjson results "$results" \
 		--argjson bcwcfg "$(z2_bcw_settings)" \
 		--arg pbase "$pbase" --arg pyt "$pyt" --arg pdisc "$pdisc" \
-		--argjson manual "$manual" --argjson gnew "$gnew" \
+		--arg gstate "$gstate" \
+		--argjson manual "$manual" \
 		--arg version "$(z2_pkg_version)" \
 		--arg latest "$(z2_pkg_available_version)" \
 		--argjson stjob "$stjob" \
@@ -2773,7 +2805,7 @@ EOF
 			nfqws2:$nfq,
 			nfq_blocks:$nfq_blocks,
 			profiles:$profiles,
-			games:{active:$gv, xtreme:($xtreme==1), fresh:($gnew==1)},
+			games:{active:(if $gstate != "" then $gstate else $gv end), xtreme:($xtreme==1), fresh:($gstate=="h5")},
 			manual:($manual==1),
 			presets:{
 				base:$pbase,

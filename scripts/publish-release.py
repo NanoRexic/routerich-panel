@@ -48,6 +48,28 @@ def api_request(token: str, method: str, url: str, data: bytes | None = None, he
         raise RuntimeError(f"GitHub API {exc.code}: {detail}") from exc
 
 
+def changelog_section(version: str) -> str:
+    path = ROOT / "CHANGELOG.md"
+    if not path.is_file():
+        return ""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    heading = f"## [{version}]"
+    start = None
+    for i, line in enumerate(lines):
+        if line.startswith(heading):
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    chunk = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        chunk.append(line)
+    text = "\n".join(chunk).strip()
+    return text + "\n\n" if text else ""
+
+
 def main() -> int:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     tag = f"v{version}"
@@ -57,9 +79,10 @@ def main() -> int:
         return 1
 
     token = git_github_token()
+    notes = changelog_section(version) or f"RouteRich Panel {version}\n\n"
     release_body = (
         f"## RouteRich Panel {version}\n\n"
-        "Добавлены пресеты zapret2\n\n"
+        f"{notes}"
         "### Windows-установщик\n"
         f"Скачайте **`{zip_path.name}`**, распакуйте и запустите:\n"
         "1. `1-Install-Prerequisites.bat`\n"

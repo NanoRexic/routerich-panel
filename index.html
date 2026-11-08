@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e293b">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Панель управления роутером RouteRich">
-  <meta name="routerich-version" content="1.6.1">
+  <meta name="routerich-version" content="1.6.2">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -78,12 +78,6 @@
           <button class="menu-item" id="btn-awg">
             <span class="menu-icon">⚙</span>
             Обновить конфиг AmneziaWG
-          </button>
-        </li>
-        <li id="menu-item-opera-proxy" hidden>
-          <button class="menu-item" id="btn-opera-proxy">
-            <span class="menu-icon">🌐</span>
-            Исправить Opera-Proxy
           </button>
         </li>
         <li>
@@ -603,7 +597,8 @@
           <div class="zp-section">
             <h3>Игры</h3>
             <div class="zp-btn-grid">
-              <button type="button" class="zp-toggle" data-z2-gv="new">Новые</button>
+              <button type="button" class="zp-toggle" data-z2-gv="h1">GameH1</button>
+              <button type="button" class="zp-toggle" data-z2-gv="h5">GameH5</button>
             </div>
             <h3 class="z2-legacy-title">Legacy *УСТАРЕВШИЕ*</h3>
             <div class="zp-btn-grid">
@@ -681,6 +676,18 @@
         <button type="button" class="btn btn-outline" id="shortcut-close">Закрыть</button>
         <button type="button" class="btn btn-primary" id="shortcut-action" hidden>Скачать ярлык</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="changelog-overlay" hidden>
+    <div class="modal changelog-modal" role="dialog" aria-labelledby="changelog-title">
+      <div class="zapret-header">
+        <h2 id="changelog-title">Что нового</h2>
+        <div class="zapret-header-actions">
+          <button type="button" class="btn btn-outline btn-sm panel-busy-allow" id="changelog-close">Закрыть</button>
+        </div>
+      </div>
+      <div class="zapret-body" id="changelog-body"></div>
     </div>
   </div>
 

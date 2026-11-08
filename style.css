@@ -4701,3 +4701,25 @@ body.panel-busy .panel-busy-allow {
   pointer-events: auto;
   cursor: pointer;
 }
+
+.changelog-modal {
+  width: min(560px, 100%);
+}
+
+.changelog-section + .changelog-section {
+  margin-top: 16px;
+}
+
+.changelog-section h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.changelog-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.changelog-section li + li {
+  margin-top: 6px;
+}

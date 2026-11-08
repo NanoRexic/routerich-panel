@@ -4,7 +4,7 @@
   "panel_port_fallbacks": [2021, 8080, 8888],
   "files": [
     {"src": "cgi-bin/reboot", "dst": "/www/routerich-panel/cgi-bin/reboot", "mode": "755"},
-    {"src": "cgi-bin/fix-opera-proxy", "dst": "/www/routerich-panel/cgi-bin/fix-opera-proxy", "mode": "755"},
+    {"src": "CHANGELOG.md", "dst": "/www/routerich-panel/CHANGELOG.md", "mode": "644"},
     {"src": "cgi-bin/import-awg", "dst": "/www/routerich-panel/cgi-bin/import-awg", "mode": "755"},
     {"src": "cgi-bin/generate-awg", "dst": "/www/routerich-panel/cgi-bin/generate-awg", "mode": "755"},
     {"src": "cgi-bin/saved-awg", "dst": "/www/routerich-panel/cgi-bin/saved-awg", "mode": "755"},

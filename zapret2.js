@@ -187,7 +187,8 @@
     if (!g) return '';
     const active = g.active;
     const empty = active == null || active === '' || active === 'null';
-    if (g.fresh && empty) return 'new';
+    if (active === 'h1' || active === 'h5') return active;
+    if (active === 'new' || (g.fresh && empty)) return 'h5';
     if (empty) return '';
     return String(active);
   }
@@ -202,7 +203,7 @@
     const bcwLabel = !bcwInstalled ? 'нет' : (bcwRun ? 'идёт поиск' : 'установлен');
     const bcwCls = !bcwInstalled ? 'zp-run off' : 'zp-run on';
     const gkey = gamesKey(d);
-    const gv = gkey === 'new' ? 'Новые' : (gkey ? ('Gv' + gkey) : 'выкл');
+    const gv = gkey === 'h5' ? 'GameH5' : (gkey === 'h1' ? 'GameH1' : (gkey ? ('Gv' + gkey) : 'выкл'));
     const liveBlocks = (d.nfq_blocks && d.nfq_blocks.length)
       ? d.nfq_blocks
       : (d.profiles || []).filter(function (p) { return p.enabled; }).map(function (p) {
@@ -679,7 +680,7 @@
     const xt = d && d.games && d.games.xtreme;
     document.querySelectorAll('#zapret2-panel-games [data-z2-gv]').forEach(function (btn) {
       const v = btn.dataset.z2Gv;
-      if (v === 'xtreme') btn.classList.toggle('active', !!xt && key !== 'new');
+      if (v === 'xtreme') btn.classList.toggle('active', !!xt && key !== 'h5' && key !== 'h1');
       else btn.classList.toggle('active', key === v);
     });
   }
@@ -1457,7 +1458,8 @@
       if (v === 'xtreme') return run('games', { value: 'xtreme' }, 'Xtreme');
       const cur = gamesKey(data);
       if (cur === v) return run('games', { value: 'remove' }, 'Игры выкл');
-      if (v === 'new') return run('games', { value: 'new' }, 'Игры: новые');
+      if (v === 'h5') return run('games', { value: 'h5' }, 'GameH5');
+      if (v === 'h1') return run('games', { value: 'h1' }, 'GameH1');
       run('games', { value: v }, 'Игры Gv' + v);
     });
 

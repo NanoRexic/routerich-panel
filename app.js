@@ -990,136 +990,6 @@ async function pickScoutEndpoint(tr) {
   }
 }
 
-const operaProxyMenuItem = document.getElementById('menu-item-opera-proxy');
-
-const operaProxyBtn = document.getElementById('btn-opera-proxy');
-
-
-
-function setOperaProxyVisible(visible) {
-
-  if (!operaProxyMenuItem) return;
-
-  operaProxyMenuItem.hidden = !visible;
-
-}
-
-
-
-async function refreshOperaProxyStatus() {
-
-  if (!operaProxyMenuItem) return;
-
-  try {
-
-    const data = await apiGet('fix-opera-proxy');
-
-    if (data.ok && data.data) {
-
-      if (data.data.podkop_detected || data.data.zeroblock_available === false) {
-
-        setOperaProxyVisible(false);
-
-        return;
-
-      }
-
-      setOperaProxyVisible(!!data.data.needs_fix);
-
-      if (operaProxyBtn) {
-
-        operaProxyBtn.title = data.data.needs_fix
-
-          ? 'Прокси ' + (data.data.http_proxy || '127.0.0.1:18080') + ' не отвечает — требуется исправление'
-
-          : '';
-
-      }
-
-    } else {
-
-      setOperaProxyVisible(false);
-
-    }
-
-  } catch (_) {
-
-    setOperaProxyVisible(false);
-
-  }
-
-}
-
-
-
-if (operaProxyBtn) {
-
-  operaProxyBtn.addEventListener('click', async () => {
-
-    if (uiLocked()) return;
-
-    showStatus('Opera-Proxy…', 'info', { title: 'Проверка', progress: true });
-
-    operaProxyBtn.disabled = true;
-
-    window.RouteRichUi.begin();
-
-
-
-    try {
-
-      const data = await apiPost('fix-opera-proxy', '');
-
-      if (data.ok) {
-
-        const d = data.data || {};
-
-        let msg = data.message || 'Opera-Proxy настроен.';
-
-        if (d.opera_proxy_version) msg += ' Версия: ' + d.opera_proxy_version + '.';
-
-        if (d.http_proxy) msg += ' Прокси: ' + d.http_proxy + '.';
-
-        if (d.custom_fix_applied === false) msg += ' Кастомный init не потребовался.';
-
-        hideStatus();
-
-        notify()?.success(msg, { source: 'Opera-Proxy', title: 'Прокси настроен' });
-
-        setOperaProxyVisible(false);
-
-      } else {
-
-        hideStatus();
-
-        notify()?.error('Ошибка: ' + (data.error || 'неизвестная'), { source: 'Opera-Proxy' });
-
-      }
-
-    } catch (err) {
-
-      hideStatus();
-
-      notify()?.error('Ошибка сети: ' + err.message, { source: 'Opera-Proxy' });
-
-    } finally {
-
-      window.RouteRichUi.end();
-
-      operaProxyBtn.disabled = false;
-
-    }
-
-  });
-
-}
-
-
-
-refreshOperaProxyStatus();
-
-
-
 const panelUpdateBtn = document.getElementById('btn-update');
 
 let panelUpdateInfo = null;
@@ -1165,6 +1035,180 @@ function versionMax(a, b) {
   return versionGt(a, b) ? a : b;
 
 }
+
+
+
+function escapeHtml(value) {
+
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+
+  }[ch]));
+
+}
+
+
+
+function parseChangelog(text) {
+
+  const sections = [];
+
+  let current = null;
+
+  String(text || '').split(/\r?\n/).forEach((line) => {
+
+    const match = /^##\s+\[([^\]]+)\]/.exec(line);
+
+    if (match) {
+
+      current = { version: match[1], items: [] };
+
+      sections.push(current);
+
+      return;
+
+    }
+
+    if (current && /^\s*[-*]\s+/.test(line)) {
+
+      current.items.push(line.replace(/^\s*[-*]\s+/, ''));
+
+    }
+
+  });
+
+  return sections;
+
+}
+
+
+
+function hideChangelog() {
+
+  const overlay = document.getElementById('changelog-overlay');
+
+  if (overlay) overlay.hidden = true;
+
+  const otherOpen = Array.prototype.some.call(document.querySelectorAll('.modal-overlay'), (el) => {
+
+    return el !== overlay && !el.hidden;
+
+  });
+
+  if (!otherOpen) document.body.classList.remove('modal-open');
+
+}
+
+
+
+function showChangelog(sections) {
+
+  const overlay = document.getElementById('changelog-overlay');
+
+  const body = document.getElementById('changelog-body');
+
+  const title = document.getElementById('changelog-title');
+
+  if (!overlay || !body || !sections.length) return;
+
+  if (title) {
+
+    title.textContent = sections.length === 1
+
+      ? ('Что нового в ' + sections[0].version)
+
+      : 'Что нового';
+
+  }
+
+  body.innerHTML = sections.map((sec) => {
+
+    const items = sec.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join('');
+
+    return '<section class="changelog-section"><h3>' + escapeHtml(sec.version) + '</h3><ul>' + items + '</ul></section>';
+
+  }).join('');
+
+  overlay.hidden = false;
+
+  document.body.classList.add('modal-open');
+
+}
+
+
+
+function markChangelogSeen(version) {
+
+  try { localStorage.setItem('routerich-seen-version', version || ''); } catch (_) {}
+
+}
+
+
+
+function maybeShowChangelog() {
+
+  const current = getEmbeddedPanelVersion();
+
+  if (!current) return;
+
+  let from = '';
+
+  let seen = '';
+
+  try {
+
+    from = localStorage.getItem('routerich-changelog-from') || '';
+
+    seen = localStorage.getItem('routerich-seen-version') || '';
+
+    if (from) localStorage.removeItem('routerich-changelog-from');
+
+  } catch (_) {}
+
+  const baseline = from || seen;
+
+  if (!baseline || !versionGt(current, baseline)) {
+
+    markChangelogSeen(current);
+
+    return;
+
+  }
+
+  fetch('CHANGELOG.md?_=' + Date.now(), { cache: 'no-store' })
+
+    .then((res) => (res.ok ? res.text() : ''))
+
+    .then((text) => {
+
+      const sections = parseChangelog(text).filter((sec) => {
+
+        return versionGt(sec.version, baseline) && !versionGt(sec.version, current);
+
+      });
+
+      if (sections.length) showChangelog(sections);
+
+      markChangelogSeen(current);
+
+    })
+
+    .catch(() => { markChangelogSeen(current); });
+
+}
+
+
+
+document.getElementById('changelog-close')?.addEventListener('click', hideChangelog);
+
+document.getElementById('changelog-overlay')?.addEventListener('click', (e) => {
+
+  if (e.target && e.target.id === 'changelog-overlay') hideChangelog();
+
+});
+
+maybeShowChangelog();
 
 
 
@@ -1369,6 +1413,12 @@ if (panelUpdateBtn) {
       if (ok) {
 
         hideStatus();
+
+        try {
+
+          localStorage.setItem('routerich-changelog-from', getEmbeddedPanelVersion() || current || '');
+
+        } catch (_) {}
 
         notify()?.success(message + ' Перезагрузка…', { source: 'Обновление' });
 

@@ -64,6 +64,12 @@ EOF
 		games_tcp)
 			printf '%s\n' '--out-range=<n4' '--payload=known,unknown' '--lua-desync=fake:blob=blob_stun:repeats=8:tcp_ts=-600000:payload=known,unknown' '--lua-desync=fake:blob=blob_tls_clienthello_www_onetrust_com:repeats=8:tcp_ts=-600000:payload=known,unknown' '--lua-desync=multisplit:pos=1:seqovl=664:seqovl_pattern=blob_stun:repeats=8:payload=known,unknown'
 			;;
+		gameh1_udp)
+			printf '%s\n' '--payload=unknown,quic_initial,stun' '--lua-desync=fake:blob=blob_stun:badsum:repeats=6:payload=unknown,quic_initial,stun' '--lua-desync=fake:blob=blob_stun:ip_autottl=-2,3-20:repeats=4:payload=unknown,quic_initial,stun'
+			;;
+		gameh1_tcp)
+			printf '%s\n' '--out-range=-n5' '--payload=all' '--lua-desync=multisplit:pos=1:seqovl=582:seqovl_pattern=blob_stun'
+			;;
 		*) return 1 ;;
 	esac
 }

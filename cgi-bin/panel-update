@@ -167,7 +167,6 @@ deploy_file() {
 
 deploy_fallback() {
 	deploy_file "cgi-bin/reboot" "/www/routerich-panel/cgi-bin/reboot" "755" || return 1
-	deploy_file "cgi-bin/fix-opera-proxy" "/www/routerich-panel/cgi-bin/fix-opera-proxy" "755" || return 1
 	deploy_file "cgi-bin/import-awg" "/www/routerich-panel/cgi-bin/import-awg" "755" || return 1
 	deploy_file "cgi-bin/generate-awg" "/www/routerich-panel/cgi-bin/generate-awg" "755" || return 1
 	deploy_file "cgi-bin/saved-awg" "/www/routerich-panel/cgi-bin/saved-awg" "755" || return 1
@@ -195,6 +194,7 @@ deploy_fallback() {
 	deploy_file "icon-512-solid.png" "/www/routerich-panel/icon-512-solid.png" "644" || return 1
 	deploy_file "apple-touch-icon.png" "/www/routerich-panel/apple-touch-icon.png" "644" || return 1
 	deploy_file "manifest.webmanifest" "/www/routerich-panel/manifest.webmanifest" "644" || return 1
+	deploy_file "CHANGELOG.md" "/www/routerich-panel/CHANGELOG.md" "644" || return 1
 	deploy_file "VERSION" "/www/routerich-panel/VERSION" "644" || return 1
 	deploy_file "VERSION" "/etc/routerich-panel/VERSION" "644" || return 1
 	return 0
@@ -236,6 +236,11 @@ run_update() {
 	[ -n "$latest" ] || latest=$(get_remote_version) || json_err "Не удалось определить версию после обновления"
 	[ -n "$latest" ] || json_err "Пустая версия после обновления"
 	sync_version_files "$latest"
+	if [ -f /etc/routerich-panel/zapret2-headless.sh ]; then
+		# shellcheck disable=SC1091
+		. /etc/routerich-panel/zapret2-headless.sh
+		z2_games_migrate_selection || true
+	fi
 	json_ok_update "$latest"
 }
 
