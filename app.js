@@ -1138,64 +1138,36 @@ function showChangelog(sections) {
 
 
 
-function markChangelogSeen(version) {
-
-  try { localStorage.setItem('routerich-seen-version', version || ''); } catch (_) {}
-
+function markChangelogShown(version) {
+  try { localStorage.setItem('routerich-changelog-shown', version || ''); } catch (_) {}
 }
 
-
-
 function maybeShowChangelog() {
-
   const current = getEmbeddedPanelVersion();
-
   if (!current) return;
-
-  let from = '';
-
-  let seen = '';
-
+  let shown = '';
   try {
-
-    from = localStorage.getItem('routerich-changelog-from') || '';
-
-    seen = localStorage.getItem('routerich-seen-version') || '';
-
-    if (from) localStorage.removeItem('routerich-changelog-from');
-
+    shown = localStorage.getItem('routerich-changelog-shown') || '';
+    // 1.6 did not store the version it updated from. 1.6.3 then wrote
+    // routerich-seen-version and skipped the dialog. Only trust a version
+    // whose notes were actually shown.
+    localStorage.removeItem('routerich-changelog-from');
   } catch (_) {}
-
-  const baseline = from || seen;
-
-  if (!baseline || !versionGt(current, baseline)) {
-
-    markChangelogSeen(current);
-
-    return;
-
-  }
+  if (shown && !versionGt(current, shown)) return;
 
   fetch('CHANGELOG.md?_=' + Date.now(), { cache: 'no-store' })
-
     .then((res) => (res.ok ? res.text() : ''))
-
     .then((text) => {
-
+      if (!text) return;
       const sections = parseChangelog(text).filter((sec) => {
-
-        return versionGt(sec.version, baseline) && !versionGt(sec.version, current);
-
+        if (versionGt(sec.version, current)) return false;
+        if (!shown) return true;
+        return versionGt(sec.version, shown);
       });
-
       if (sections.length) showChangelog(sections);
-
-      markChangelogSeen(current);
-
+      markChangelogShown(current);
     })
-
-    .catch(() => { markChangelogSeen(current); });
-
+    .catch(() => {});
 }
 
 

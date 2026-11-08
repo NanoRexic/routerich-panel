@@ -317,12 +317,13 @@ z2_preset_apply() {
 }
 
 # Nearby RU servers accept autottl fakes and abort QUIC. Skip desync for that prefix list.
+# uci del_list exits 0 when the item is already absent, so a delete loop never ends.
 z2_games_bind_ru_exclude() {
 	f=/etc/routerich-panel/ipset-ru.txt
 	[ -s "$f" ] || return 0
 	uci -q get zapret2.list_ipset_ru >/dev/null 2>&1 || uci -q set zapret2.list_ipset_ru=list
 	uci -q set zapret2.list_ipset_ru.path="$f"
-	while uci -q del_list zapret2.games_udp.ipset_exclude=list_ipset_ru; do :; done
+	uci -q delete zapret2.games_udp.ipset_exclude || true
 	uci -q add_list zapret2.games_udp.ipset_exclude=list_ipset_ru
 }
 
