@@ -316,6 +316,16 @@ z2_preset_apply() {
 	return 0
 }
 
+# Nearby RU servers accept autottl fakes and abort QUIC. Skip desync for that prefix list.
+z2_games_bind_ru_exclude() {
+	f=/etc/routerich-panel/ipset-ru.txt
+	[ -s "$f" ] || return 0
+	uci -q get zapret2.list_ipset_ru >/dev/null 2>&1 || uci -q set zapret2.list_ipset_ru=list
+	uci -q set zapret2.list_ipset_ru.path="$f"
+	while uci -q del_list zapret2.games_udp.ipset_exclude=list_ipset_ru; do :; done
+	uci -q add_list zapret2.games_udp.ipset_exclude=list_ipset_ru
+}
+
 z2_games_apply_named() {
 	id="$1"
 	case "$id" in
@@ -344,6 +354,7 @@ z2_games_apply_named() {
 	uci -q set zapret2.games_udp.enabled='1'
 	uci -q set zapret2.games_udp.port="$udp_ports"
 	uci -q set zapret2.games_udp.protocol='udp'
+	z2_games_bind_ru_exclude
 	uci -q commit zapret2
 	tcp_script=$(z2_preset_script "$tcp_name") || return 1
 	udp_script=$(z2_preset_script "$udp_name") || return 1
@@ -881,6 +892,7 @@ z2_games_apply() {
 	uci -q set zapret2.games_tcp.enabled='1'
 	uci -q set zapret2.games_tcp.port="$tcp_ports"
 	uci -q set zapret2.games_tcp.protocol='tcp'
+	z2_games_bind_ru_exclude
 	uci -q commit zapret2
 	z2_set_script games_udp "$(z2_games_script_udp "$n")"
 	z2_set_script games_tcp "$(z2_games_script_tcp)"
